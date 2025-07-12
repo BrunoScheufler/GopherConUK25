@@ -112,9 +112,9 @@ func (s *Server) handleUpdateAccount(w http.ResponseWriter, r *http.Request) {
 	if err := s.accountStore.UpdateAccount(r.Context(), account); err != nil {
 		if errors.Is(err, store.ErrAccountNotFound) {
 			s.writeError(w, http.StatusNotFound, "Account not found")
-		} else {
-			s.writeError(w, http.StatusInternalServerError, "Failed to update account")
+			return
 		}
+		s.writeError(w, http.StatusInternalServerError, "Failed to update account")
 		return
 	}
 
@@ -226,9 +226,9 @@ func (s *Server) handleUpdateNote(w http.ResponseWriter, r *http.Request) {
 	if err := s.noteStore.UpdateNote(r.Context(), accountID, note); err != nil {
 		if errors.Is(err, store.ErrNoteNotFound) {
 			s.writeError(w, http.StatusNotFound, "Note not found")
-		} else {
-			s.writeError(w, http.StatusInternalServerError, "Failed to update note")
+			return
 		}
+		s.writeError(w, http.StatusInternalServerError, "Failed to update note")
 		return
 	}
 
@@ -255,9 +255,9 @@ func (s *Server) handleDeleteNote(w http.ResponseWriter, r *http.Request) {
 	if err := s.noteStore.DeleteNote(r.Context(), accountID, note); err != nil {
 		if errors.Is(err, store.ErrNoteNotFound) {
 			s.writeError(w, http.StatusNotFound, "Note not found")
-		} else {
-			s.writeError(w, http.StatusInternalServerError, "Failed to delete note")
+			return
 		}
+		s.writeError(w, http.StatusInternalServerError, "Failed to delete note")
 		return
 	}
 

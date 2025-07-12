@@ -49,6 +49,171 @@ go mod tidy               # Clean up dependencies
 go mod download           # Download dependencies
 ```
 
+## Code Style Guidelines
+
+### Early Returns
+
+**Always prefer early returns over if/else chains** to improve code readability and reduce nesting:
+
+**✅ Good - Early Return:**
+```go
+func validateUser(user User) error {
+    if user.ID == "" {
+        return errors.New("user ID is required")
+    }
+    if user.Name == "" {
+        return errors.New("user name is required")
+    }
+    return nil
+}
+
+func handleRequest(w http.ResponseWriter, r *http.Request) {
+    if err := validateInput(r); err != nil {
+        writeError(w, http.StatusBadRequest, err.Error())
+        return
+    }
+    if !isAuthorized(r) {
+        writeError(w, http.StatusUnauthorized, "Unauthorized")
+        return
+    }
+    // Happy path logic here
+    processRequest(w, r)
+}
+```
+
+**❌ Avoid - if/else chains:**
+```go
+func validateUser(user User) error {
+    if user.ID == "" {
+        return errors.New("user ID is required")
+    } else {
+        if user.Name == "" {
+            return errors.New("user name is required")
+        } else {
+            return nil
+        }
+    }
+}
+```
+
+This pattern:
+- Reduces cognitive load by handling edge cases first
+- Keeps the main logic unindented and easy to follow
+- Makes error handling explicit and immediate
+- Eliminates deeply nested if/else structures
+
+### Custom Errors with errors.Is()
+
+**Always prefer custom error types with `errors.Is()` over string comparison** for robust error handling:
+
+**✅ Good - Custom Errors:**
+```go
+// Define custom error types
+var (
+    ErrAccountNotFound = errors.New("account not found")
+    ErrNoteNotFound    = errors.New("note not found")
+    ErrInvalidInput    = errors.New("invalid input")
+)
+
+// Return custom errors from functions
+func (s *Store) UpdateAccount(ctx context.Context, account Account) error {
+    result, err := s.db.ExecContext(ctx, query, account.Name, account.ID)
+    if err != nil {
+        return fmt.Errorf("failed to update account: %w", err)
+    }
+    
+    rowsAffected, err := result.RowsAffected()
+    if err != nil {
+        return fmt.Errorf("failed to get rows affected: %w", err)
+    }
+    
+    if rowsAffected == 0 {
+        return ErrAccountNotFound  // Return custom error
+    }
+    
+    return nil
+}
+
+// Check errors using errors.Is()
+func (s *Server) handleUpdateAccount(w http.ResponseWriter, r *http.Request) {
+    if err := s.accountStore.UpdateAccount(r.Context(), account); err != nil {
+        if errors.Is(err, store.ErrAccountNotFound) {
+            s.writeError(w, http.StatusNotFound, "Account not found")
+            return
+        }
+        s.writeError(w, http.StatusInternalServerError, "Failed to update account")
+        return
+    }
+    // Success path...
+}
+```
+
+**❌ Avoid - String Comparison:**
+```go
+// Fragile string matching
+func (s *Server) handleUpdateAccount(w http.ResponseWriter, r *http.Request) {
+    if err := s.accountStore.UpdateAccount(r.Context(), account); err != nil {
+        if strings.Contains(err.Error(), "not found") {  // Brittle!
+            s.writeError(w, http.StatusNotFound, "Account not found")
+            return
+        }
+        s.writeError(w, http.StatusInternalServerError, "Failed to update account")
+        return
+    }
+}
+```
+
+Benefits of custom errors:
+- **Type Safety**: Compile-time error checking vs runtime string matching
+- **Maintainability**: Error messages can change without breaking error handling logic
+- **Performance**: Direct comparison vs string search operations
+- **Clarity**: Explicit error types make code intent clearer
+- **Composability**: Works well with error wrapping using `fmt.Errorf` with `%w` verb
+
+### Commit Frequently with Small Changesets
+
+**Always commit after each logical change to maintain small, focused changesets:**
+
+**✅ Good - Small, Focused Commits:**
+```bash
+# Single logical change per commit
+git add store/types.go
+git commit -m "add custom error types for better error handling"
+
+git add store/sqlite.go  
+git commit -m "update store methods to return custom errors"
+
+git add rest_api.go
+git commit -m "replace string matching with errors.Is() in HTTP handlers"
+```
+
+**✅ Good Commit Messages:**
+- `fix: handle database connection timeout in account store`
+- `refactor: extract database configuration to separate struct`
+- `feat: add early return pattern to theme formatting functions`
+- `docs: add code style guidelines for error handling`
+
+**❌ Avoid - Large, Mixed Commits:**
+```bash
+# Multiple unrelated changes bundled together
+git add .
+git commit -m "fix stuff and add features"  # Vague and too broad
+```
+
+**Guidelines for commits:**
+- **One logical change per commit**: Each commit should represent a single, complete change
+- **Descriptive messages**: Use conventional commit format (`type: description`)
+- **Build verification**: Ensure `go build` succeeds before committing
+- **Test early**: Run tests frequently, not just before final commit
+- **Atomic changes**: Each commit should leave the codebase in a working state
+
+**Benefits of frequent commits:**
+- **Easier code review**: Reviewers can understand changes incrementally
+- **Better debugging**: `git bisect` works effectively with small commits
+- **Safer refactoring**: Easy to revert specific changes without losing other work
+- **Clear history**: Git log becomes a readable story of development
+- **Collaboration**: Reduces merge conflicts in team environments
+
 ## Implementation Status
 
 The project is functionally complete with multiple interfaces:
@@ -97,7 +262,6 @@ The project is functionally complete with multiple interfaces:
 
 ```
 ├── main.go           # Application entry point and mode selection
-├── store.go          # Legacy store implementations (may be deprecated)
 ├── rest_api.go       # HTTP handlers and REST API endpoints
 ├── go.mod           # Go module definition
 ├── cli/             # Terminal User Interface components

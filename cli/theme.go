@@ -86,26 +86,26 @@ func ApplyThemeToTextView(tv *tview.TextView, theme Theme) {
 
 func FormatStatsWithTheme(stats *telemetry.Stats, theme Theme) string {
 	// Choose color codes based on theme name
-	var (
-		titleColor     string
-		primaryColor   string
-		secondaryColor string
-		accentColor    string
-	)
-
 	if theme.Name == "light" {
 		// Light theme color codes
-		titleColor = "[navy]"
-		primaryColor = "[black]"
-		secondaryColor = "[darkgray]"
-		accentColor = "[teal]"
-	} else {
-		// Dark theme color codes
-		titleColor = "[yellow]"
-		primaryColor = "[white]" 
-		secondaryColor = "[gray]"
-		accentColor = "[aqua]"
+		titleColor := "[navy]"
+		primaryColor := "[black]"
+		secondaryColor := "[darkgray]"
+		accentColor := "[teal]"
+		
+		return titleColor + `╭─ System Stats ─────────────────────────────────────╮
+` + primaryColor + `│ Accounts: ` + accentColor + `%-10d` + primaryColor + `  Notes: ` + accentColor + `%-15d` + primaryColor + ` │
+│ Total Requests: ` + accentColor + `%-10d` + primaryColor + `  Rate: ` + accentColor + `%-8d/sec` + primaryColor + ` │
+│ Uptime: ` + accentColor + `%-20s` + primaryColor + `  Goroutines: ` + accentColor + `%-6d` + primaryColor + ` │
+│ Memory: ` + accentColor + `%-20s` + primaryColor + `  Updated: ` + secondaryColor + `%s` + primaryColor + ` │
+` + titleColor + `╰────────────────────────────────────────────────────╯[-]`
 	}
+
+	// Dark theme color codes (default)
+	titleColor := "[yellow]"
+	primaryColor := "[white]" 
+	secondaryColor := "[gray]"
+	accentColor := "[aqua]"
 
 	return titleColor + `╭─ System Stats ─────────────────────────────────────╮
 ` + primaryColor + `│ Accounts: ` + accentColor + `%-10d` + primaryColor + `  Notes: ` + accentColor + `%-15d` + primaryColor + ` │
@@ -116,15 +116,14 @@ func FormatStatsWithTheme(stats *telemetry.Stats, theme Theme) string {
 }
 
 func FormatLogEntryWithTheme(entry telemetry.LogEntry, theme Theme) string {
-	var timeColor string
 	if theme.Name == "light" {
-		timeColor = "[darkgray]"
-	} else { // Dark theme
-		timeColor = "[gray]"
+		return fmt.Sprintf("[darkgray][%s][-] %s", 
+			entry.Timestamp.Format("15:04:05"), 
+			entry.Message)
 	}
 	
-	return fmt.Sprintf("%s[%s][-] %s", 
-		timeColor,
+	// Dark theme (default)
+	return fmt.Sprintf("[gray][%s][-] %s", 
 		entry.Timestamp.Format("15:04:05"), 
 		entry.Message)
 }
