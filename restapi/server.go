@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -17,6 +17,7 @@ type Server struct {
 	accountStore store.AccountStore
 	noteStore    store.NoteStore
 	telemetry    *telemetry.Telemetry
+	logger       *slog.Logger
 }
 
 func NewServer(accountStore store.AccountStore, noteStore store.NoteStore, tel *telemetry.Telemetry) *Server {
@@ -24,6 +25,7 @@ func NewServer(accountStore store.AccountStore, noteStore store.NoteStore, tel *
 		accountStore: accountStore,
 		noteStore:    noteStore,
 		telemetry:    tel,
+		logger:       tel.GetLogger(),
 	}
 }
 
@@ -49,7 +51,14 @@ func (s *Server) LoggingMiddleware(next http.Handler) http.Handler {
 		start := time.Now()
 		s.telemetry.StatsCollector.IncrementRequest()
 		next.ServeHTTP(w, r)
-		log.Printf("%s %s %v", r.Method, r.URL.Path, time.Since(start))
+		// Only log non-load-generator requests to reduce noise
+		if r.Header.Get("User-Agent") != "LoadGenerator" {
+			s.logger.Info("HTTP request",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"duration", time.Since(start),
+			)
+		}
 	})
 }
 
@@ -86,7 +95,7 @@ func (s *Server) writeJSON(w http.ResponseWriter, statusCode int, data interface
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
 	if err := json.NewEncoder(w).Encode(data); err != nil {
-		log.Printf("Failed to encode JSON: %v", err)
+		s.logger.Error("Failed to encode JSON", "error", err)
 	}
 }
 

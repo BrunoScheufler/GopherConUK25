@@ -131,9 +131,9 @@ func initializeStores() (store.AccountStore, store.NoteStore, error) {
 }
 
 // setupTelemetry creates and starts the telemetry system
-func setupTelemetry(accountStore store.AccountStore, noteStore store.NoteStore) *telemetry.Telemetry {
-	tel := telemetry.New(accountStore, noteStore)
-	tel.SetupLogging()
+func setupTelemetry(accountStore store.AccountStore, noteStore store.NoteStore, cliMode bool) *telemetry.Telemetry {
+	tel := telemetry.New(accountStore, noteStore, cliMode)
+	tel.SetupGlobalLogger()
 	tel.Start()
 	return tel
 }
@@ -180,7 +180,7 @@ func initializeApplication(config Config) (*ApplicationComponents, error) {
 		return nil, err
 	}
 
-	tel := setupTelemetry(accountStore, noteStore)
+	tel := setupTelemetry(accountStore, noteStore, config.CLIMode)
 	httpServer := createHTTPServer(accountStore, noteStore, tel, port)
 	simulator := createSimulator(config, tel, port)
 
@@ -208,31 +208,33 @@ func Run(config Config) error {
 	}
 
 	// Otherwise run the HTTP server only
-	return runHTTPServer(components.HTTPServer, components.Simulator)
+	return runHTTPServer(components.HTTPServer, components.Simulator, components.Telemetry)
 }
 
 func runWithCLI(httpServer *http.Server, accountStore store.AccountStore, noteStore store.NoteStore, tel *telemetry.Telemetry, options cli.CLIOptions, simulator *Simulator) error {
+	logger := tel.GetLogger()
+	
 	// Start server first, then validate health before starting CLI
 	serverError := make(chan error, 1)
 	go func() {
-		log.Printf("Server starting on %s", httpServer.Addr)
+		logger.Info("Server starting", "addr", httpServer.Addr)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			serverError <- err
 		}
 	}()
 
 	// Wait for server to be healthy before starting CLI
-	log.Println("Waiting for server health check...")
+	logger.Info("Waiting for server health check...")
 	if err := checkServerHealth(httpServer.Addr); err != nil {
 		return fmt.Errorf("server failed health check: %w", err)
 	}
-	log.Println("Server health check passed, starting CLI...")
+	logger.Info("Server health check passed, starting CLI...")
 	
 	// Start load generator if provided
 	if simulator != nil {
 		go func() {
 			if err := simulator.Start(); err != nil {
-				log.Printf("Load generator failed to start: %v", err)
+				logger.Error("Load generator failed to start", "error", err)
 			}
 		}()
 	}
@@ -249,7 +251,7 @@ func runWithCLI(httpServer *http.Server, accountStore store.AccountStore, noteSt
 		return fmt.Errorf("server failed: %w", err)
 	case err := <-cliError:
 		// CLI exited, shutdown server gracefully
-		log.Println("Shutting down server...")
+		logger.Info("Shutting down server...")
 		
 		// Stop load generator first
 		if simulator != nil {
@@ -267,7 +269,7 @@ func runWithCLI(httpServer *http.Server, accountStore store.AccountStore, noteSt
 	}
 }
 
-func runHTTPServer(httpServer *http.Server, simulator *Simulator) error {
+func runHTTPServer(httpServer *http.Server, simulator *Simulator, tel *telemetry.Telemetry) error {
 	// Set up signal handling for graceful shutdown
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
@@ -282,14 +284,16 @@ func runHTTPServer(httpServer *http.Server, simulator *Simulator) error {
 		stopError <- nil // Normal shutdown signal
 	}()
 
-	return runServer(httpServer, stopError, simulator)
+	return runServer(httpServer, stopError, simulator, tel)
 }
 
-func runServer(httpServer *http.Server, shutdownTrigger <-chan error, simulator *Simulator) error {
+func runServer(httpServer *http.Server, shutdownTrigger <-chan error, simulator *Simulator, tel *telemetry.Telemetry) error {
+	logger := tel.GetLogger()
+	
 	// Start HTTP server in background
 	serverError := make(chan error, 1)
 	go func() {
-		log.Printf("Server starting on %s", httpServer.Addr)
+		logger.Info("Server starting", "addr", httpServer.Addr)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			serverError <- err
 		}
@@ -301,7 +305,7 @@ func runServer(httpServer *http.Server, shutdownTrigger <-chan error, simulator 
 			// Wait a moment for server to be ready
 			time.Sleep(LoadGenStartupDelay)
 			if err := simulator.Start(); err != nil {
-				log.Printf("Load generator failed to start: %v", err)
+				logger.Error("Load generator failed to start", "error", err)
 			}
 		}()
 	}
@@ -312,7 +316,7 @@ func runServer(httpServer *http.Server, shutdownTrigger <-chan error, simulator 
 		return fmt.Errorf("server failed to start: %w", err)
 	case err := <-shutdownTrigger:
 		// Shutdown triggered (CLI exit or signal)
-		log.Println("Shutting down server...")
+		logger.Info("Shutting down server...")
 		ctx, cancel := context.WithTimeout(context.Background(), GracefulShutdownTimeout)
 		defer cancel()
 

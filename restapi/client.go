@@ -45,6 +45,7 @@ func (c *RestAPIClient) doRequest(ctx context.Context, method, path string, body
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	req.Header.Set("User-Agent", "LoadGenerator")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

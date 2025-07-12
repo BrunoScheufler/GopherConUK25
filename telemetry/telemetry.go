@@ -1,7 +1,7 @@
 package telemetry
 
 import (
-	"log"
+	"log/slog"
 	"os"
 	"time"
 
@@ -12,6 +12,7 @@ import (
 type Telemetry struct {
 	LogCapture     *LogCapture
 	StatsCollector *StatsCollector
+	Logger         *slog.Logger
 }
 
 const (
@@ -22,22 +23,37 @@ const (
 )
 
 // New creates a new telemetry instance
-func New(accountStore store.AccountStore, noteStore store.NoteStore) *Telemetry {
+func New(accountStore store.AccountStore, noteStore store.NoteStore, cliMode bool) *Telemetry {
 	logCapture := NewLogCapture(DefaultLogBufferSize)
 	statsCollector := NewStatsCollector(accountStore, noteStore)
+	
+	var logger *slog.Logger
+	if cliMode {
+		// In CLI mode, send logs only to the capture system
+		handler := slog.NewTextHandler(logCapture, &slog.HandlerOptions{
+			Level: slog.LevelInfo,
+		})
+		logger = slog.New(handler)
+	} else {
+		// In non-CLI mode, send logs to stderr
+		handler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+			Level: slog.LevelInfo,
+		})
+		logger = slog.New(handler)
+		// Also capture logs for telemetry display
+		logCapture.AddWriter(os.Stderr)
+	}
 
 	return &Telemetry{
 		LogCapture:     logCapture,
 		StatsCollector: statsCollector,
+		Logger:         logger,
 	}
 }
 
-// SetupLogging configures the global logger to use the telemetry system
-func (t *Telemetry) SetupLogging() {
-	// Keep original stderr output
-	t.LogCapture.AddWriter(os.Stderr)
-	// Redirect all log output to our capture system
-	log.SetOutput(t.LogCapture)
+// SetupGlobalLogger configures the global slog default logger
+func (t *Telemetry) SetupGlobalLogger() {
+	slog.SetDefault(t.Logger)
 }
 
 // Start begins background telemetry collection
@@ -48,4 +64,9 @@ func (t *Telemetry) Start() {
 // GetStatsCollector returns the stats collector instance
 func (t *Telemetry) GetStatsCollector() *StatsCollector {
 	return t.StatsCollector
+}
+
+// GetLogger returns the structured logger instance
+func (t *Telemetry) GetLogger() *slog.Logger {
+	return t.Logger
 }

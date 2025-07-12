@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
-	"log"
+	"log/slog"
 	"math/rand"
 	"sync"
 	"time"
@@ -25,6 +25,7 @@ type SimulatorOptions struct {
 type Simulator struct {
 	apiClient *restapi.RestAPIClient
 	telemetry *telemetry.Telemetry
+	logger    *slog.Logger
 	options   SimulatorOptions
 	
 	ctx    context.Context
@@ -36,6 +37,7 @@ type AccountLoop struct {
 	accountID uuid.UUID
 	apiClient *restapi.RestAPIClient
 	telemetry *telemetry.Telemetry
+	logger    *slog.Logger
 	
 	// Track notes with their expected content hashes
 	notes     map[uuid.UUID]string // noteID -> hash
@@ -58,6 +60,7 @@ func NewSimulator(telemetry *telemetry.Telemetry, options SimulatorOptions) *Sim
 	return &Simulator{
 		apiClient: restapi.NewRestAPIClient(baseURL),
 		telemetry: telemetry,
+		logger:    telemetry.GetLogger(),
 		options:   options,
 		ctx:       ctx,
 		cancel:    cancel,
@@ -65,8 +68,11 @@ func NewSimulator(telemetry *telemetry.Telemetry, options SimulatorOptions) *Sim
 }
 
 func (s *Simulator) Start() error {
-	log.Printf("Starting load generator with %d accounts, %d notes per account, %d requests/min", 
-		s.options.AccountCount, s.options.NotesPerAccount, s.options.RequestsPerMin)
+	s.logger.Info("Starting load generator",
+		"accounts", s.options.AccountCount,
+		"notes_per_account", s.options.NotesPerAccount,
+		"requests_per_min", s.options.RequestsPerMin,
+	)
 	
 	accounts, err := s.createAccounts()
 	if err != nil {
@@ -83,14 +89,14 @@ func (s *Simulator) Start() error {
 }
 
 func (s *Simulator) Stop() {
-	log.Println("Stopping load generator...")
+	s.logger.Info("Stopping load generator...")
 	s.cancel()
 	s.wg.Wait()
-	log.Println("Load generator stopped")
+	s.logger.Info("Load generator stopped")
 }
 
 func (s *Simulator) createAccounts() ([]store.Account, error) {
-	log.Printf("Creating %d accounts...", s.options.AccountCount)
+	s.logger.Info("Creating accounts", "count", s.options.AccountCount)
 	
 	accounts := make([]store.Account, 0, s.options.AccountCount)
 	
@@ -109,7 +115,7 @@ func (s *Simulator) createAccounts() ([]store.Account, error) {
 		accounts = append(accounts, *createdAccount)
 	}
 	
-	log.Printf("Successfully created %d accounts", len(accounts))
+	s.logger.Info("Successfully created accounts", "count", len(accounts))
 	return accounts, nil
 }
 
@@ -120,6 +126,7 @@ func (s *Simulator) runAccountLoop(account store.Account) {
 		accountID: account.ID,
 		apiClient: s.apiClient,
 		telemetry: s.telemetry,
+		logger:    s.logger,
 		notes:     make(map[uuid.UUID]string),
 		ctx:       s.ctx,
 	}
@@ -134,11 +141,14 @@ func (s *Simulator) runAccountLoop(account store.Account) {
 	
 	// Create initial notes for this account
 	if err := accountLoop.createInitialNotes(s.options.NotesPerAccount); err != nil {
-		log.Printf("Failed to create initial notes for account %s: %v", account.ID, err)
+		s.logger.Error("Failed to create initial notes", "account", account.ID, "error", err)
 		return
 	}
 	
-	log.Printf("Started account loop for %s with %d notes", account.ID, len(accountLoop.notes))
+	// Reduce log noise - only log for first account
+	if account.Name == "LoadTestUser1" {
+		s.logger.Info("Started account loops for load generator")
+	}
 	
 	// Run the account operations loop
 	accountLoop.run()
@@ -185,7 +195,8 @@ func (al *AccountLoop) run() {
 		case <-al.ticker.C:
 			operation := operations[rand.Intn(len(operations))]
 			if err := operation(); err != nil {
-				log.Printf("Account %s operation failed: %v", al.accountID, err)
+				// Only log errors, not every operation
+				al.logger.Error("Load generator operation failed", "error", err)
 			}
 		}
 	}
@@ -277,8 +288,7 @@ func (al *AccountLoop) readNote() error {
 	// Check content consistency
 	actualHash := hashContents(note.Content)
 	if actualHash != expectedHash {
-		log.Printf("CONSISTENCY ERROR: Account %s, Note %s - Expected hash: %s, Actual hash: %s", 
-			al.accountID, randomNoteID, expectedHash, actualHash)
+		al.logger.Warn("CONSISTENCY ERROR: Note content mismatch detected")
 	}
 	
 	return nil
@@ -331,8 +341,7 @@ func (al *AccountLoop) listNotes() error {
 		// Check if this note should exist in our local map
 		if expectedHash, exists := al.notes[note.ID]; exists {
 			if expectedHash != serverNotes[note.ID] {
-				log.Printf("CONSISTENCY ERROR: Account %s, Note %s (list) - Expected hash: %s, Actual hash: %s", 
-					al.accountID, note.ID, expectedHash, serverNotes[note.ID])
+				al.logger.Warn("CONSISTENCY ERROR: Note list content mismatch detected")
 			}
 		}
 	}
@@ -340,10 +349,9 @@ func (al *AccountLoop) listNotes() error {
 	// Check that all local notes exist on the server
 	for noteID, expectedHash := range al.notes {
 		if actualHash, exists := serverNotes[noteID]; !exists {
-			log.Printf("CONSISTENCY ERROR: Account %s, Note %s missing from server", al.accountID, noteID)
+			al.logger.Warn("CONSISTENCY ERROR: Note missing from server")
 		} else if actualHash != expectedHash {
-			log.Printf("CONSISTENCY ERROR: Account %s, Note %s (list check) - Expected hash: %s, Actual hash: %s", 
-				al.accountID, noteID, expectedHash, actualHash)
+			al.logger.Warn("CONSISTENCY ERROR: Note server/client mismatch")
 		}
 	}
 	
