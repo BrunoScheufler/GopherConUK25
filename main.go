@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -18,6 +19,7 @@ import (
 
 const (
 	NoteShard1 = "notes1"
+	ServerPort = ":8080"
 )
 
 func main() {
@@ -30,7 +32,22 @@ func main() {
 	}
 }
  
+// checkPortAvailable checks if the given port is available for binding
+func checkPortAvailable(port string) error {
+	listener, err := net.Listen("tcp", port)
+	if err != nil {
+		return fmt.Errorf("port %s is not available: %w", port, err)
+	}
+	listener.Close()
+	return nil
+}
+
 func Run(cliMode bool, theme string) error {
+	// Check if port is available before doing any other work
+	if err := checkPortAvailable(ServerPort); err != nil {
+		return err
+	}
+
 	noteStore, err := store.NewNoteStore(NoteShard1)
 	if err != nil {
 		return fmt.Errorf("could not create note store: %w", err)
@@ -119,7 +136,7 @@ func createHTTPServer(accountStore store.AccountStore, noteStore store.NoteStore
 	server.SetupRoutes(mux)
 
 	return &http.Server{
-		Addr:    ":8080",
+		Addr:    ServerPort,
 		Handler: server.LoggingMiddleware(mux),
 	}
 }
