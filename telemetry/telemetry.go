@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/brunoscheufler/gopherconuk25/store"
+	"github.com/lmittmann/tint"
 )
 
 // Telemetry provides centralized logging and stats collection
@@ -26,18 +27,29 @@ const (
 func New(accountStore store.AccountStore, noteStore store.NoteStore, cliMode bool) *Telemetry {
 	logCapture := NewLogCapture(DefaultLogBufferSize)
 	statsCollector := NewStatsCollector(accountStore, noteStore)
-	
+
 	var logger *slog.Logger
 	if cliMode {
-		// In CLI mode, send logs only to the capture system
-		handler := slog.NewTextHandler(logCapture, &slog.HandlerOptions{
-			Level: slog.LevelInfo,
+		// In CLI mode, send logs only to the capture system without colors
+		handler := tint.NewHandler(logCapture, &tint.Options{
+			Level:   slog.LevelDebug,
+			NoColor: true, // Disable colors for CLI mode
 		})
 		logger = slog.New(handler)
 	} else {
-		// In non-CLI mode, send logs to stderr
-		handler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-			Level: slog.LevelInfo,
+		// In non-CLI mode, send logs to stderr with color
+		handler := tint.NewHandler(os.Stderr, &tint.Options{
+			Level: slog.LevelDebug,
+			ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+				// Color attribute names in teal (cyan)
+				if len(groups) == 0 && a.Key != "time" && a.Key != "level" && a.Key != "msg" {
+					return slog.Attr{
+						Key:   "\033[36m" + a.Key + "\033[0m", // Teal color for attribute names
+						Value: a.Value,
+					}
+				}
+				return a
+			},
 		})
 		logger = slog.New(handler)
 		// Also capture logs for telemetry display

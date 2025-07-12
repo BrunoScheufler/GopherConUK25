@@ -51,14 +51,11 @@ func (s *Server) LoggingMiddleware(next http.Handler) http.Handler {
 		start := time.Now()
 		s.telemetry.StatsCollector.IncrementRequest()
 		next.ServeHTTP(w, r)
-		// Only log non-load-generator requests to reduce noise
-		if r.Header.Get("User-Agent") != "LoadGenerator" {
-			s.logger.Info("HTTP request",
-				"method", r.Method,
-				"path", r.URL.Path,
-				"duration", time.Since(start),
-			)
-		}
+		s.logger.Info("HTTP request",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"duration", time.Since(start),
+		)
 	})
 }
 
