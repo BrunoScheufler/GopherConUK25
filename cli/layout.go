@@ -116,7 +116,7 @@ func (c *CLIApp) IncrementRequest() {
 }
 
 func (c *CLIApp) statsUpdateLoop() {
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(telemetry.DefaultStatsInterval)
 	defer ticker.Stop()
 
 	for {

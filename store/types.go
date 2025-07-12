@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -32,4 +33,31 @@ type NoteStore interface {
 	UpdateNote(ctx context.Context, accountID uuid.UUID, note Note) error
 	DeleteNote(ctx context.Context, accountID uuid.UUID, note Note) error
 	GetTotalNotes(ctx context.Context) (int, error)
+}
+
+// Custom error types for better error handling
+var (
+	ErrAccountNotFound = errors.New("account not found")
+	ErrNoteNotFound    = errors.New("note not found")
+)
+
+// DatabaseConfig holds database connection configuration
+type DatabaseConfig struct {
+	MaxOpenConns    int
+	MaxIdleConns    int
+	ConnMaxLifetime time.Duration
+}
+
+// DefaultDatabaseConfig returns sensible defaults for database configuration
+func DefaultDatabaseConfig() DatabaseConfig {
+	return DatabaseConfig{
+		MaxOpenConns:    25,
+		MaxIdleConns:    5,
+		ConnMaxLifetime: 5 * time.Minute,
+	}
+}
+
+// Store interface for proper resource management
+type Store interface {
+	Close() error
 }

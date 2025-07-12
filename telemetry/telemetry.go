@@ -3,6 +3,7 @@ package telemetry
 import (
 	"log"
 	"os"
+	"time"
 
 	"github.com/brunoscheufler/gopherconuk25/store"
 )
@@ -13,9 +14,16 @@ type Telemetry struct {
 	StatsCollector *StatsCollector
 }
 
+const (
+	// DefaultLogBufferSize is the default number of log entries to keep in memory
+	DefaultLogBufferSize = 1000
+	// DefaultStatsInterval is the default interval for stats collection
+	DefaultStatsInterval = 2 * time.Second
+)
+
 // New creates a new telemetry instance
 func New(accountStore store.AccountStore, noteStore store.NoteStore) *Telemetry {
-	logCapture := NewLogCapture(1000) // Keep last 1000 log entries
+	logCapture := NewLogCapture(DefaultLogBufferSize)
 	statsCollector := NewStatsCollector(accountStore, noteStore)
 
 	return &Telemetry{

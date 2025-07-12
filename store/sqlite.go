@@ -69,7 +69,7 @@ func (s sqliteAccountStore) UpdateAccount(ctx context.Context, a Account) error 
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("account not found")
+		return ErrAccountNotFound
 	}
 
 	return nil
@@ -165,7 +165,7 @@ func (s sqliteNoteStore) UpdateNote(ctx context.Context, accountID uuid.UUID, no
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("note not found or not owned by account")
+		return ErrNoteNotFound
 	}
 
 	return nil
@@ -184,7 +184,7 @@ func (s sqliteNoteStore) DeleteNote(ctx context.Context, accountID uuid.UUID, no
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("note not found or not owned by account")
+		return ErrNoteNotFound
 	}
 
 	return nil
@@ -200,13 +200,28 @@ func (s sqliteNoteStore) GetTotalNotes(ctx context.Context) (int, error) {
 	return count, nil
 }
 
+// Close implements the Store interface for sqliteAccountStore
+func (s *sqliteAccountStore) Close() error {
+	return s.db.Close()
+}
+
+// Close implements the Store interface for sqliteNoteStore
+func (s *sqliteNoteStore) Close() error {
+	return s.db.Close()
+}
+
 func NewAccountStore(name string) (AccountStore, error) {
-	db, err := createSQLiteDatabase(name)
+	return NewAccountStoreWithConfig(name, DefaultDatabaseConfig())
+}
+
+func NewAccountStoreWithConfig(name string, config DatabaseConfig) (AccountStore, error) {
+	db, err := createSQLiteDatabaseWithConfig(name, config)
 	if err != nil {
 		return nil, fmt.Errorf("could not create sqlite db: %w", err)
 	}
 
 	if err := createAccountsTable(db); err != nil {
+		db.Close()
 		return nil, fmt.Errorf("could not create accounts table: %w", err)
 	}
 
@@ -214,12 +229,17 @@ func NewAccountStore(name string) (AccountStore, error) {
 }
 
 func NewNoteStore(name string) (NoteStore, error) {
-	db, err := createSQLiteDatabase(name)
+	return NewNoteStoreWithConfig(name, DefaultDatabaseConfig())
+}
+
+func NewNoteStoreWithConfig(name string, config DatabaseConfig) (NoteStore, error) {
+	db, err := createSQLiteDatabaseWithConfig(name, config)
 	if err != nil {
 		return nil, fmt.Errorf("could not create sqlite db: %w", err)
 	}
 
 	if err := createNotesTable(db); err != nil {
+		db.Close()
 		return nil, fmt.Errorf("could not create notes table: %w", err)
 	}
 
@@ -251,6 +271,10 @@ func createAccountsTable(db *sql.DB) error {
 }
 
 func createSQLiteDatabase(name string) (*sql.DB, error) {
+	return createSQLiteDatabaseWithConfig(name, DefaultDatabaseConfig())
+}
+
+func createSQLiteDatabaseWithConfig(name string, config DatabaseConfig) (*sql.DB, error) {
 	wd, err := os.Getwd()
 	if err != nil {
 		return nil, fmt.Errorf("could not get working directory: %w", err)
@@ -270,6 +294,11 @@ func createSQLiteDatabase(name string) (*sql.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("could not open sqlite db: %w", err)
 	}
+
+	// Configure connection pool
+	db.SetMaxOpenConns(config.MaxOpenConns)
+	db.SetMaxIdleConns(config.MaxIdleConns)
+	db.SetConnMaxLifetime(config.ConnMaxLifetime)
 
 	return db, nil
 }

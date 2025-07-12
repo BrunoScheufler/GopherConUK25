@@ -21,6 +21,10 @@ type StatsCollector struct {
 	
 	// System stats
 	startTime time.Time
+	
+	// Context for graceful shutdown
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 type Stats struct {
@@ -35,10 +39,13 @@ type Stats struct {
 }
 
 func NewStatsCollector(accountStore store.AccountStore, noteStore store.NoteStore) *StatsCollector {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &StatsCollector{
 		accountStore: accountStore,
 		noteStore:    noteStore,
 		startTime:    time.Now(),
+		ctx:          ctx,
+		cancel:       cancel,
 	}
 }
 
@@ -82,17 +89,27 @@ func (sc *StatsCollector) CollectStats(ctx context.Context) (*Stats, error) {
 	return stats, nil
 }
 
+// Stop gracefully shuts down the stats collector
+func (sc *StatsCollector) Stop() {
+	sc.cancel()
+}
+
 func (sc *StatsCollector) StartRequestRateCalculation() {
 	go func() {
 		ticker := time.NewTicker(1 * time.Second)
 		defer ticker.Stop()
 		
 		lastTotal := int64(0)
-		for range ticker.C {
-			current := atomic.LoadInt64(&sc.totalRequests)
-			rate := current - lastTotal
-			atomic.StoreInt64(&sc.requestsPerSec, rate)
-			lastTotal = current
+		for {
+			select {
+			case <-sc.ctx.Done():
+				return
+			case <-ticker.C:
+				current := atomic.LoadInt64(&sc.totalRequests)
+				rate := current - lastTotal
+				atomic.StoreInt64(&sc.requestsPerSec, rate)
+				lastTotal = current
+			}
 		}
 	}()
 }

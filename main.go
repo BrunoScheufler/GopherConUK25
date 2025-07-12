@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/brunoscheufler/gopherconuk25/cli"
+	"github.com/brunoscheufler/gopherconuk25/store"
 	"github.com/brunoscheufler/gopherconuk25/telemetry"
 )
 
@@ -30,12 +31,12 @@ func main() {
 }
  
 func Run(cliMode bool, theme string) error {
-	noteStore, err := NewNoteStore(NoteShard1)
+	noteStore, err := store.NewNoteStore(NoteShard1)
 	if err != nil {
 		return fmt.Errorf("could not create note store: %w", err)
 	}
 
-	accountStore, err := NewAccountStore("accounts")
+	accountStore, err := store.NewAccountStore("accounts")
 	if err != nil {
 		return fmt.Errorf("could not create account store: %w", err)
 	}
@@ -58,7 +59,7 @@ func Run(cliMode bool, theme string) error {
 	return runHTTPServer(accountStore, noteStore, tel)
 }
 
-func runWithCLI(accountStore AccountStore, noteStore NoteStore, tel *telemetry.Telemetry, options cli.CLIOptions) error {
+func runWithCLI(accountStore store.AccountStore, noteStore store.NoteStore, tel *telemetry.Telemetry, options cli.CLIOptions) error {
 	// Start HTTP server in background
 	httpServer := createHTTPServer(accountStore, noteStore, tel)
 	serverError := make(chan error, 1)
@@ -90,7 +91,7 @@ func runWithCLI(accountStore AccountStore, noteStore NoteStore, tel *telemetry.T
 	}
 }
 
-func runHTTPServer(accountStore AccountStore, noteStore NoteStore, tel *telemetry.Telemetry) error {
+func runHTTPServer(accountStore store.AccountStore, noteStore store.NoteStore, tel *telemetry.Telemetry) error {
 	httpServer := createHTTPServer(accountStore, noteStore, tel)
 	
 	serverError := make(chan error, 1)
@@ -118,7 +119,7 @@ func runHTTPServer(accountStore AccountStore, noteStore NoteStore, tel *telemetr
 	return httpServer.Shutdown(ctx)
 }
 
-func createHTTPServer(accountStore AccountStore, noteStore NoteStore, tel *telemetry.Telemetry) *http.Server {
+func createHTTPServer(accountStore store.AccountStore, noteStore store.NoteStore, tel *telemetry.Telemetry) *http.Server {
 	server := NewServer(accountStore, noteStore, tel)
 	mux := http.NewServeMux()
 	server.SetupRoutes(mux)

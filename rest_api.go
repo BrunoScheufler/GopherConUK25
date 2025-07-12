@@ -2,18 +2,19 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/brunoscheufler/gopherconuk25/store"
 	"github.com/brunoscheufler/gopherconuk25/telemetry"
 )
 
 type Server struct {
-	accountStore AccountStore
-	noteStore    NoteStore
+	accountStore store.AccountStore
+	noteStore    store.NoteStore
 	telemetry    *telemetry.Telemetry
 }
 
@@ -21,7 +22,7 @@ type ErrorResponse struct {
 	Error string `json:"error"`
 }
 
-func NewServer(accountStore AccountStore, noteStore NoteStore, tel *telemetry.Telemetry) *Server {
+func NewServer(accountStore store.AccountStore, noteStore store.NoteStore, tel *telemetry.Telemetry) *Server {
 	return &Server{
 		accountStore: accountStore,
 		noteStore:    noteStore,
@@ -74,7 +75,7 @@ func (s *Server) handleListAccounts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
-	var account Account
+	var account store.Account
 	if err := json.NewDecoder(r.Body).Decode(&account); err != nil {
 		s.writeError(w, http.StatusBadRequest, "Invalid JSON")
 		return
@@ -100,7 +101,7 @@ func (s *Server) handleUpdateAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var account Account
+	var account store.Account
 	if err := json.NewDecoder(r.Body).Decode(&account); err != nil {
 		s.writeError(w, http.StatusBadRequest, "Invalid JSON")
 		return
@@ -109,7 +110,7 @@ func (s *Server) handleUpdateAccount(w http.ResponseWriter, r *http.Request) {
 	account.ID = accountID
 
 	if err := s.accountStore.UpdateAccount(r.Context(), account); err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, store.ErrAccountNotFound) {
 			s.writeError(w, http.StatusNotFound, "Account not found")
 		} else {
 			s.writeError(w, http.StatusInternalServerError, "Failed to update account")
@@ -174,7 +175,7 @@ func (s *Server) handleCreateNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var note Note
+	var note store.Note
 	if err := json.NewDecoder(r.Body).Decode(&note); err != nil {
 		s.writeError(w, http.StatusBadRequest, "Invalid JSON")
 		return
@@ -213,7 +214,7 @@ func (s *Server) handleUpdateNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var note Note
+	var note store.Note
 	if err := json.NewDecoder(r.Body).Decode(&note); err != nil {
 		s.writeError(w, http.StatusBadRequest, "Invalid JSON")
 		return
@@ -223,7 +224,7 @@ func (s *Server) handleUpdateNote(w http.ResponseWriter, r *http.Request) {
 	note.Creator = accountID
 
 	if err := s.noteStore.UpdateNote(r.Context(), accountID, note); err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, store.ErrNoteNotFound) {
 			s.writeError(w, http.StatusNotFound, "Note not found")
 		} else {
 			s.writeError(w, http.StatusInternalServerError, "Failed to update note")
@@ -249,10 +250,10 @@ func (s *Server) handleDeleteNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	note := Note{ID: noteID, Creator: accountID}
+	note := store.Note{ID: noteID, Creator: accountID}
 
 	if err := s.noteStore.DeleteNote(r.Context(), accountID, note); err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, store.ErrNoteNotFound) {
 			s.writeError(w, http.StatusNotFound, "Note not found")
 		} else {
 			s.writeError(w, http.StatusInternalServerError, "Failed to delete note")
