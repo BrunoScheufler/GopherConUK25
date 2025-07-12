@@ -40,16 +40,6 @@ func New(accountStore store.AccountStore, noteStore store.NoteStore, cliMode boo
 		// In non-CLI mode, send logs to stderr with color
 		handler := tint.NewHandler(os.Stderr, &tint.Options{
 			Level: slog.LevelDebug,
-			ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
-				// Color attribute names in teal (cyan)
-				if len(groups) == 0 && a.Key != "time" && a.Key != "level" && a.Key != "msg" {
-					return slog.Attr{
-						Key:   "\033[36m" + a.Key + "\033[0m", // Teal color for attribute names
-						Value: a.Value,
-					}
-				}
-				return a
-			},
 		})
 		logger = slog.New(handler)
 		// Also capture logs for telemetry display
@@ -81,4 +71,14 @@ func (t *Telemetry) GetStatsCollector() *StatsCollector {
 // GetLogger returns the structured logger instance
 func (t *Telemetry) GetLogger() *slog.Logger {
 	return t.Logger
+}
+
+// SwitchToStderr switches logging output from log capture to stderr
+// This is useful when CLI exits and we want shutdown logs visible in terminal
+func (t *Telemetry) SwitchToStderr() {
+	handler := tint.NewHandler(os.Stderr, &tint.Options{
+		Level: slog.LevelDebug,
+	})
+	t.Logger = slog.New(handler)
+	slog.SetDefault(t.Logger)
 }

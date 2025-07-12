@@ -89,11 +89,28 @@ func (s *Simulator) Start() error {
 	return nil
 }
 
+// UpdateLogger updates the simulator's logger reference
+func (s *Simulator) UpdateLogger() {
+	s.logger = s.telemetry.GetLogger()
+}
+
 func (s *Simulator) Stop() {
 	s.logger.Info("Stopping load generator...")
 	s.cancel()
-	s.wg.Wait()
-	s.logger.Info("Load generator stopped")
+	
+	// Wait for goroutines to finish with a timeout to prevent hanging
+	done := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(done)
+	}()
+	
+	select {
+	case <-done:
+		s.logger.Info("Load generator stopped")
+	case <-time.After(2 * time.Second):
+		s.logger.Warn("Load generator stop timed out, some goroutines may still be running")
+	}
 }
 
 func (s *Simulator) createAccounts() ([]store.Account, error) {

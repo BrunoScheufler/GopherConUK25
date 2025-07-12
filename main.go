@@ -250,21 +250,36 @@ func runWithCLI(httpServer *http.Server, accountStore store.AccountStore, noteSt
 	case err := <-serverError:
 		return fmt.Errorf("server failed: %w", err)
 	case err := <-cliError:
+		// CLI exited, give it a moment to fully close, then switch logging to stderr
+		time.Sleep(100 * time.Millisecond)
+		tel.SwitchToStderr()
+		logger = tel.GetLogger() // Update logger reference
+		
+		// Update simulator's logger reference if it exists
+		if simulator != nil {
+			simulator.UpdateLogger()
+		}
+		
 		// CLI exited, shutdown server gracefully
-		logger.Info("Shutting down server...")
+		logger.Info("CLI exited, initiating graceful shutdown...")
 		
 		// Stop load generator first
 		if simulator != nil {
+			logger.Info("Stopping load generator...")
 			simulator.Stop()
 		}
+		
+		logger.Info("Shutting down HTTP server...")
 		
 		ctx, cancel := context.WithTimeout(context.Background(), GracefulShutdownTimeout)
 		defer cancel()
 
 		if shutdownErr := httpServer.Shutdown(ctx); shutdownErr != nil {
+			logger.Error("Server shutdown failed", "error", shutdownErr)
 			return fmt.Errorf("server shutdown failed: %w", shutdownErr)
 		}
-
+		
+		logger.Info("Application shutdown complete")
 		return err // Return the CLI error (if any)
 	}
 }
