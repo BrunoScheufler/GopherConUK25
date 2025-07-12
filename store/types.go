@@ -25,6 +25,12 @@ type Note struct {
 	Content   string    `json:"content"`
 }
 
+// AccountStats represents an account with its note count statistics
+type AccountStats struct {
+	Account   Account `json:"account"`
+	NoteCount int     `json:"noteCount"`
+}
+
 type AccountStore interface {
 	ListAccounts(ctx context.Context) ([]Account, error)
 	CreateAccount(ctx context.Context, a Account) error
@@ -38,6 +44,7 @@ type NoteStore interface {
 	CreateNote(ctx context.Context, accountID uuid.UUID, note Note) error
 	UpdateNote(ctx context.Context, accountID uuid.UUID, note Note) error
 	DeleteNote(ctx context.Context, accountID uuid.UUID, note Note) error
+	CountNotes(ctx context.Context, accountID uuid.UUID) (int, error)
 	GetTotalNotes(ctx context.Context) (int, error)
 	HealthCheck(ctx context.Context) error
 }

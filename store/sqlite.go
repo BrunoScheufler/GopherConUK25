@@ -195,6 +195,16 @@ func (s sqliteNoteStore) DeleteNote(ctx context.Context, accountID uuid.UUID, no
 	return nil
 }
 
+func (s sqliteNoteStore) CountNotes(ctx context.Context, accountID uuid.UUID) (int, error) {
+	query := `SELECT COUNT(*) FROM notes WHERE creator = ?`
+	var count int
+	err := s.db.QueryRowContext(ctx, query, accountID.String()).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count notes for account: %w", err)
+	}
+	return count, nil
+}
+
 func (s sqliteNoteStore) GetTotalNotes(ctx context.Context) (int, error) {
 	query := `SELECT COUNT(*) FROM notes`
 	var count int
