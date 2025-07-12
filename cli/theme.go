@@ -1,7 +1,10 @@
 package cli
 
 import (
+	"bytes"
 	"fmt"
+	"text/template"
+	"time"
 
 	"github.com/brunoscheufler/gopherconuk25/telemetry"
 	"github.com/gdamore/tcell/v2"
@@ -84,35 +87,71 @@ func ApplyThemeToTextView(tv *tview.TextView, theme Theme) {
 	tv.SetTitleColor(theme.Title)
 }
 
-func FormatStatsWithTheme(stats *telemetry.Stats, theme Theme) string {
-	// Choose color codes based on theme name
-	if theme.Name == "light" {
-		// Light theme color codes
-		titleColor := "[navy]"
-		primaryColor := "[black]"
-		secondaryColor := "[darkgray]"
-		accentColor := "[teal]"
+const statsTemplate = `{{.LabelColor}}Accounts:{{.ValueColor}} {{.AccountCount}}{{.LabelColor}}
+Notes:{{.ValueColor}} {{.NoteCount}}{{.LabelColor}}
+Total Requests:{{.ValueColor}} {{.TotalRequests}}{{.LabelColor}}
+Rate:{{.ValueColor}} {{.RequestsPerSec}}/sec{{.LabelColor}}
+Uptime:{{.ValueColor}} {{.Uptime}}{{.LabelColor}}
+Goroutines:{{.ValueColor}} {{.GoRoutines}}{{.LabelColor}}
+Memory:{{.ValueColor}} {{.MemoryUsage}}{{.LabelColor}}
+Updated:{{.SecondaryColor}} {{.LastUpdated}}[-]`
 
-		return titleColor + `╭─ System Stats ─────────────────────────────────────╮
-` + primaryColor + `│ Accounts: ` + accentColor + `%-10d` + primaryColor + `  Notes: ` + accentColor + `%-15d` + primaryColor + ` │
-│ Total Requests: ` + accentColor + `%-10d` + primaryColor + `  Rate: ` + accentColor + `%-8d/sec` + primaryColor + ` │
-│ Uptime: ` + accentColor + `%-20s` + primaryColor + `  Goroutines: ` + accentColor + `%-6d` + primaryColor + ` │
-│ Memory: ` + accentColor + `%-20s` + primaryColor + `  Updated: ` + secondaryColor + `%s` + primaryColor + ` │
-` + titleColor + `╰────────────────────────────────────────────────────╯[-]`
+type StatsData struct {
+	AccountCount    int
+	NoteCount       int
+	TotalRequests   int64
+	RequestsPerSec  int64
+	Uptime          string
+	GoRoutines      int
+	MemoryUsage     string
+	LastUpdated     string
+	LabelColor      string
+	ValueColor      string
+	SecondaryColor  string
+}
+
+var statsTemplateParsed = template.Must(template.New("stats").Parse(statsTemplate))
+
+func FormatStatsWithTheme(stats *telemetry.Stats, theme Theme) string {
+	var labelColor, valueColor, secondaryColor string
+	
+	if theme.Name == "light" {
+		labelColor = "[navy]"
+		valueColor = "[teal]"
+		secondaryColor = "[darkgray]"
+	} else {
+		labelColor = "[white]"
+		valueColor = "[aqua]"
+		secondaryColor = "[gray]"
 	}
 
-	// Dark theme color codes (default)
-	titleColor := "[yellow]"
-	primaryColor := "[white]"
-	secondaryColor := "[gray]"
-	accentColor := "[aqua]"
+	data := StatsData{
+		AccountCount:   stats.AccountCount,
+		NoteCount:      stats.NoteCount,
+		TotalRequests:  stats.TotalRequests,
+		RequestsPerSec: stats.RequestsPerSec,
+		Uptime:         formatDuration(stats.Uptime),
+		GoRoutines:     stats.GoRoutines,
+		MemoryUsage:    stats.MemoryUsage,
+		LastUpdated:    stats.LastUpdated.Format("15:04:05"),
+		LabelColor:     labelColor,
+		ValueColor:     valueColor,
+		SecondaryColor: secondaryColor,
+	}
 
-	return titleColor + `╭─ System Stats ─────────────────────────────────────╮
-` + primaryColor + `│ Accounts: ` + accentColor + `%-10d` + primaryColor + `  Notes: ` + accentColor + `%-15d` + primaryColor + ` │
-│ Total Requests: ` + accentColor + `%-10d` + primaryColor + `  Rate: ` + accentColor + `%-8d/sec` + primaryColor + ` │
-│ Uptime: ` + accentColor + `%-20s` + primaryColor + `  Goroutines: ` + accentColor + `%-6d` + primaryColor + ` │
-│ Memory: ` + accentColor + `%-20s` + primaryColor + `  Updated: ` + secondaryColor + `%s` + primaryColor + ` │
-` + titleColor + `╰────────────────────────────────────────────────────╯[-]`
+	var buf bytes.Buffer
+	if err := statsTemplateParsed.Execute(&buf, data); err != nil {
+		return fmt.Sprintf("Error formatting stats: %v", err)
+	}
+	
+	return buf.String()
+}
+
+func formatDuration(d time.Duration) string {
+	if d < time.Hour {
+		return fmt.Sprintf("%dm%ds", int(d.Minutes()), int(d.Seconds())%60)
+	}
+	return fmt.Sprintf("%dh%dm", int(d.Hours()), int(d.Minutes())%60)
 }
 
 func FormatLogEntryWithTheme(entry telemetry.LogEntry, theme Theme) string {

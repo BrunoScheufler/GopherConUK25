@@ -176,18 +176,7 @@ func (c *CLIApp) updateStats() {
 	theme := GetTheme(c.options.Theme)
 	c.app.QueueUpdateDraw(func() {
 		c.statsView.Clear()
-		formatted := FormatStatsWithTheme(stats, theme)
-		// Use Sprintf to apply the formatting values
-		text := fmt.Sprintf(formatted,
-			stats.AccountCount,
-			stats.NoteCount,
-			stats.TotalRequests,
-			stats.RequestsPerSec,
-			formatDuration(stats.Uptime),
-			stats.GoRoutines,
-			stats.MemoryUsage,
-			stats.LastUpdated.Format("15:04:05"),
-		)
+		text := FormatStatsWithTheme(stats, theme)
 		c.statsView.SetText(text)
 	})
 }
@@ -237,12 +226,6 @@ func (c *CLIApp) loadExistingLogs() {
 	})
 }
 
-func formatDuration(d time.Duration) string {
-	if d < time.Hour {
-		return fmt.Sprintf("%dm%ds", int(d.Minutes()), int(d.Seconds())%60)
-	}
-	return fmt.Sprintf("%dh%dm", int(d.Hours()), int(d.Minutes())%60)
-}
 
 func (c *CLIApp) formatTopAccounts(accounts []store.AccountStats, theme Theme) string {
 	if len(accounts) == 0 {
