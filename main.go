@@ -25,9 +25,16 @@ func main() {
 	cliMode := flag.Bool("cli", false, "Run in CLI mode with TUI")
 	theme := flag.String("theme", "dark", "Theme for CLI mode (dark or light)")
 	port := flag.String("port", "8080", "Port to run the HTTP server on")
+	
+	// Load generator flags
+	enableLoadGen := flag.Bool("load-gen", false, "Enable load generator")
+	accountCount := flag.Int("accounts", 5, "Number of accounts for load generator")
+	notesPerAccount := flag.Int("notes-per-account", 3, "Number of notes per account for load generator")
+	requestsPerMin := flag.Int("requests-per-min", 60, "Requests per minute for load generator")
+	
 	flag.Parse()
 
-	if err := Run(*cliMode, *theme, *port); err != nil {
+	if err := Run(*cliMode, *theme, *port, *enableLoadGen, *accountCount, *notesPerAccount, *requestsPerMin); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -62,7 +69,7 @@ func checkServerHealth(port string) error {
 	return fmt.Errorf("server health check failed after retries")
 }
 
-func Run(cliMode bool, theme, port string) error {
+func Run(cliMode bool, theme, port string, enableLoadGen bool, accountCount, notesPerAccount, requestsPerMin int) error {
 	// Ensure port has colon prefix
 	if port[0] != ':' {
 		port = ":" + port
@@ -91,19 +98,31 @@ func Run(cliMode bool, theme, port string) error {
 	// Create HTTP server
 	httpServer := createHTTPServer(accountStore, noteStore, tel, port)
 
+	// Start load generator if enabled
+	var simulator *Simulator
+	if enableLoadGen {
+		simOptions := SimulatorOptions{
+			AccountCount:    accountCount,
+			NotesPerAccount: notesPerAccount,
+			RequestsPerMin:  requestsPerMin,
+			ServerPort:      port,
+		}
+		simulator = NewSimulator(tel, simOptions)
+	}
+
 	if cliMode {
 		options := cli.CLIOptions{
 			Theme: theme,
 		}
 		// Run both HTTP server and CLI concurrently
-		return runWithCLI(httpServer, accountStore, noteStore, tel, options)
+		return runWithCLI(httpServer, accountStore, noteStore, tel, options, simulator)
 	}
 
 	// Otherwise run the HTTP server only
-	return runHTTPServer(httpServer)
+	return runHTTPServer(httpServer, simulator)
 }
 
-func runWithCLI(httpServer *http.Server, accountStore store.AccountStore, noteStore store.NoteStore, tel *telemetry.Telemetry, options cli.CLIOptions) error {
+func runWithCLI(httpServer *http.Server, accountStore store.AccountStore, noteStore store.NoteStore, tel *telemetry.Telemetry, options cli.CLIOptions, simulator *Simulator) error {
 	// Start server first, then validate health before starting CLI
 	serverError := make(chan error, 1)
 	go func() {
@@ -119,6 +138,15 @@ func runWithCLI(httpServer *http.Server, accountStore store.AccountStore, noteSt
 		return fmt.Errorf("server failed health check: %w", err)
 	}
 	log.Println("Server health check passed, starting CLI...")
+	
+	// Start load generator if provided
+	if simulator != nil {
+		go func() {
+			if err := simulator.Start(); err != nil {
+				log.Printf("Load generator failed to start: %v", err)
+			}
+		}()
+	}
 
 	// Start CLI in foreground
 	cliError := make(chan error, 1)
@@ -133,6 +161,12 @@ func runWithCLI(httpServer *http.Server, accountStore store.AccountStore, noteSt
 	case err := <-cliError:
 		// CLI exited, shutdown server gracefully
 		log.Println("Shutting down server...")
+		
+		// Stop load generator first
+		if simulator != nil {
+			simulator.Stop()
+		}
+		
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
@@ -144,7 +178,7 @@ func runWithCLI(httpServer *http.Server, accountStore store.AccountStore, noteSt
 	}
 }
 
-func runHTTPServer(httpServer *http.Server) error {
+func runHTTPServer(httpServer *http.Server, simulator *Simulator) error {
 	// Set up signal handling for graceful shutdown
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
@@ -152,13 +186,17 @@ func runHTTPServer(httpServer *http.Server) error {
 	stopError := make(chan error, 1)
 	go func() {
 		<-stop
+		// Stop load generator on shutdown signal
+		if simulator != nil {
+			simulator.Stop()
+		}
 		stopError <- nil // Normal shutdown signal
 	}()
 
-	return runServer(httpServer, stopError)
+	return runServer(httpServer, stopError, simulator)
 }
 
-func runServer(httpServer *http.Server, shutdownTrigger <-chan error) error {
+func runServer(httpServer *http.Server, shutdownTrigger <-chan error, simulator *Simulator) error {
 	// Start HTTP server in background
 	serverError := make(chan error, 1)
 	go func() {
@@ -167,6 +205,17 @@ func runServer(httpServer *http.Server, shutdownTrigger <-chan error) error {
 			serverError <- err
 		}
 	}()
+	
+	// Start load generator if provided (after server starts)
+	if simulator != nil {
+		go func() {
+			// Wait a moment for server to be ready
+			time.Sleep(100 * time.Millisecond)
+			if err := simulator.Start(); err != nil {
+				log.Printf("Load generator failed to start: %v", err)
+			}
+		}()
+	}
 
 	// Wait for either server error or shutdown trigger
 	select {
