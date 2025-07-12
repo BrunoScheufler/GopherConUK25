@@ -44,3 +44,8 @@ func (t *Telemetry) SetupLogging() {
 func (t *Telemetry) Start() {
 	t.StatsCollector.StartRequestRateCalculation()
 }
+
+// GetStatsCollector returns the stats collector instance
+func (t *Telemetry) GetStatsCollector() *StatsCollector {
+	return t.StatsCollector
+}

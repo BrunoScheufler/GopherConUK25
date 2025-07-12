@@ -18,11 +18,40 @@ import (
 	"github.com/brunoscheufler/gopherconuk25/telemetry"
 )
 
+const (
+	// Health check configuration
+	MaxHealthCheckRetries    = 10
+	HealthCheckRetryInterval = 200 * time.Millisecond
+	HealthCheckTimeout       = 5 * time.Second
+	
+	// Server configuration
+	DefaultPort              = "8080"
+	GracefulShutdownTimeout  = 5 * time.Second
+	
+	// Load generator configuration
+	MillisecondsPerMinute    = 60000
+	LoadGenStartupDelay      = 100 * time.Millisecond
+)
+
+// Config holds all configuration parameters for running the application
+type Config struct {
+	// CLI configuration
+	CLIMode bool
+	Theme   string
+	Port    string
+	
+	// Load generator configuration
+	EnableLoadGen   bool
+	AccountCount    int
+	NotesPerAccount int
+	RequestsPerMin  int
+}
+
 
 func main() {
 	cliMode := flag.Bool("cli", false, "Run in CLI mode with TUI")
 	theme := flag.String("theme", "dark", "Theme for CLI mode (dark or light)")
-	port := flag.String("port", "8080", "Port to run the HTTP server on")
+	port := flag.String("port", DefaultPort, "Port to run the HTTP server on")
 	
 	// Load generator flags
 	enableLoadGen := flag.Bool("gen", false, "Enable load generator")
@@ -32,7 +61,17 @@ func main() {
 	
 	flag.Parse()
 
-	if err := Run(*cliMode, *theme, *port, *enableLoadGen, *accountCount, *notesPerAccount, *requestsPerMin); err != nil {
+	config := Config{
+		CLIMode:         *cliMode,
+		Theme:           *theme,
+		Port:            *port,
+		EnableLoadGen:   *enableLoadGen,
+		AccountCount:    *accountCount,
+		NotesPerAccount: *notesPerAccount,
+		RequestsPerMin:  *requestsPerMin,
+	}
+
+	if err := Run(config); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -49,11 +88,11 @@ func checkPortAvailable(port string) error {
 
 // checkServerHealth validates that the server is ready by calling /healthz
 func checkServerHealth(port string) error {
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := &http.Client{Timeout: HealthCheckTimeout}
 	url := fmt.Sprintf("http://localhost%s/healthz", port)
 
-	// Retry health check up to 10 times with 200ms intervals
-	for i := 0; i < 10; i++ {
+	// Retry health check with configured retries and intervals
+	for i := 0; i < MaxHealthCheckRetries; i++ {
 		resp, err := client.Get(url)
 		if err == nil {
 			resp.Body.Close()
@@ -61,13 +100,61 @@ func checkServerHealth(port string) error {
 				return nil
 			}
 		}
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(HealthCheckRetryInterval)
 	}
 
 	return fmt.Errorf("server health check failed after retries")
 }
 
-func Run(cliMode bool, theme, port string, enableLoadGen bool, accountCount, notesPerAccount, requestsPerMin int) error {
+// ApplicationComponents holds the initialized components needed to run the application
+type ApplicationComponents struct {
+	AccountStore store.AccountStore
+	NoteStore    store.NoteStore
+	Telemetry    *telemetry.Telemetry
+	HTTPServer   *http.Server
+	Simulator    *Simulator
+}
+
+// initializeStores creates and initializes the account and note stores
+func initializeStores() (store.AccountStore, store.NoteStore, error) {
+	noteStore, err := store.NewNoteStore(store.NoteShard1)
+	if err != nil {
+		return nil, nil, fmt.Errorf("could not create note store: %w", err)
+	}
+
+	accountStore, err := store.NewAccountStore("accounts")
+	if err != nil {
+		return nil, nil, fmt.Errorf("could not create account store: %w", err)
+	}
+
+	return accountStore, noteStore, nil
+}
+
+// setupTelemetry creates and starts the telemetry system
+func setupTelemetry(accountStore store.AccountStore, noteStore store.NoteStore) *telemetry.Telemetry {
+	tel := telemetry.New(accountStore, noteStore)
+	tel.SetupLogging()
+	tel.Start()
+	return tel
+}
+
+// createSimulator creates a load generator simulator if enabled
+func createSimulator(config Config, tel *telemetry.Telemetry, port string) *Simulator {
+	if !config.EnableLoadGen {
+		return nil
+	}
+
+	simOptions := SimulatorOptions{
+		AccountCount:    config.AccountCount,
+		NotesPerAccount: config.NotesPerAccount,
+		RequestsPerMin:  config.RequestsPerMin,
+		ServerPort:      port,
+	}
+	return NewSimulator(tel, simOptions)
+}
+
+// preparePort ensures the port has the correct format and checks availability
+func preparePort(port string) (string, error) {
 	// Ensure port has colon prefix
 	if port[0] != ':' {
 		port = ":" + port
@@ -75,49 +162,53 @@ func Run(cliMode bool, theme, port string, enableLoadGen bool, accountCount, not
 
 	// Check if port is available before doing any other work
 	if err := checkPortAvailable(port); err != nil {
+		return "", err
+	}
+
+	return port, nil
+}
+
+// initializeApplication sets up all application components
+func initializeApplication(config Config) (*ApplicationComponents, error) {
+	port, err := preparePort(config.Port)
+	if err != nil {
+		return nil, err
+	}
+
+	accountStore, noteStore, err := initializeStores()
+	if err != nil {
+		return nil, err
+	}
+
+	tel := setupTelemetry(accountStore, noteStore)
+	httpServer := createHTTPServer(accountStore, noteStore, tel, port)
+	simulator := createSimulator(config, tel, port)
+
+	return &ApplicationComponents{
+		AccountStore: accountStore,
+		NoteStore:    noteStore,
+		Telemetry:    tel,
+		HTTPServer:   httpServer,
+		Simulator:    simulator,
+	}, nil
+}
+
+func Run(config Config) error {
+	components, err := initializeApplication(config)
+	if err != nil {
 		return err
 	}
 
-	noteStore, err := store.NewNoteStore(restapi.NoteShard1)
-	if err != nil {
-		return fmt.Errorf("could not create note store: %w", err)
-	}
-
-	accountStore, err := store.NewAccountStore("accounts")
-	if err != nil {
-		return fmt.Errorf("could not create account store: %w", err)
-	}
-
-	// Create central telemetry instance
-	tel := telemetry.New(accountStore, noteStore)
-	tel.SetupLogging()
-	tel.Start()
-
-	// Create HTTP server
-	httpServer := createHTTPServer(accountStore, noteStore, tel, port)
-
-	// Start load generator if enabled
-	var simulator *Simulator
-	if enableLoadGen {
-		simOptions := SimulatorOptions{
-			AccountCount:    accountCount,
-			NotesPerAccount: notesPerAccount,
-			RequestsPerMin:  requestsPerMin,
-			ServerPort:      port,
-		}
-		simulator = NewSimulator(tel, simOptions)
-	}
-
-	if cliMode {
+	if config.CLIMode {
 		options := cli.CLIOptions{
-			Theme: theme,
+			Theme: config.Theme,
 		}
 		// Run both HTTP server and CLI concurrently
-		return runWithCLI(httpServer, accountStore, noteStore, tel, options, simulator)
+		return runWithCLI(components.HTTPServer, components.AccountStore, components.NoteStore, components.Telemetry, options, components.Simulator)
 	}
 
 	// Otherwise run the HTTP server only
-	return runHTTPServer(httpServer, simulator)
+	return runHTTPServer(components.HTTPServer, components.Simulator)
 }
 
 func runWithCLI(httpServer *http.Server, accountStore store.AccountStore, noteStore store.NoteStore, tel *telemetry.Telemetry, options cli.CLIOptions, simulator *Simulator) error {
@@ -165,7 +256,7 @@ func runWithCLI(httpServer *http.Server, accountStore store.AccountStore, noteSt
 			simulator.Stop()
 		}
 		
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), GracefulShutdownTimeout)
 		defer cancel()
 
 		if shutdownErr := httpServer.Shutdown(ctx); shutdownErr != nil {
@@ -208,7 +299,7 @@ func runServer(httpServer *http.Server, shutdownTrigger <-chan error, simulator 
 	if simulator != nil {
 		go func() {
 			// Wait a moment for server to be ready
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(LoadGenStartupDelay)
 			if err := simulator.Start(); err != nil {
 				log.Printf("Load generator failed to start: %v", err)
 			}
@@ -222,7 +313,7 @@ func runServer(httpServer *http.Server, shutdownTrigger <-chan error, simulator 
 	case err := <-shutdownTrigger:
 		// Shutdown triggered (CLI exit or signal)
 		log.Println("Shutting down server...")
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), GracefulShutdownTimeout)
 		defer cancel()
 
 		if shutdownErr := httpServer.Shutdown(ctx); shutdownErr != nil {

@@ -13,10 +13,6 @@ import (
 	"github.com/google/uuid"
 )
 
-const (
-	NoteShard1 = "notes1"
-)
-
 type Server struct {
 	accountStore store.AccountStore
 	noteStore    store.NoteStore
@@ -94,6 +90,26 @@ func (s *Server) writeJSON(w http.ResponseWriter, statusCode int, data interface
 	}
 }
 
+// parseAccountID parses an account ID string and handles error response internally
+func (s *Server) parseAccountID(w http.ResponseWriter, idStr string) (uuid.UUID, bool) {
+	accountID, err := uuid.Parse(idStr)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid account ID")
+		return uuid.UUID{}, false
+	}
+	return accountID, true
+}
+
+// parseNoteID parses a note ID string and handles error response internally
+func (s *Server) parseNoteID(w http.ResponseWriter, idStr string) (uuid.UUID, bool) {
+	noteID, err := uuid.Parse(idStr)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid note ID")
+		return uuid.UUID{}, false
+	}
+	return noteID, true
+}
+
 func (s *Server) handleListAccounts(w http.ResponseWriter, r *http.Request) {
 	accounts, err := s.accountStore.ListAccounts(r.Context())
 	if err != nil {
@@ -126,9 +142,8 @@ func (s *Server) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleUpdateAccount(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
-	accountID, err := uuid.Parse(idStr)
-	if err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid account ID")
+	accountID, ok := s.parseAccountID(w, idStr)
+	if !ok {
 		return
 	}
 
@@ -155,9 +170,8 @@ func (s *Server) handleUpdateAccount(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListNotes(w http.ResponseWriter, r *http.Request) {
 	accountIDStr := r.PathValue("accountId")
-	accountID, err := uuid.Parse(accountIDStr)
-	if err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid account ID")
+	accountID, ok := s.parseAccountID(w, accountIDStr)
+	if !ok {
 		return
 	}
 
@@ -167,22 +181,20 @@ func (s *Server) handleListNotes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.telemetry.GetStatsCollector().IncrementNoteRead(NoteShard1)
+	s.telemetry.GetStatsCollector().IncrementNoteRead(store.NoteShard1)
 	s.writeJSON(w, http.StatusOK, notes)
 }
 
 func (s *Server) handleGetNote(w http.ResponseWriter, r *http.Request) {
 	accountIDStr := r.PathValue("accountId")
-	accountID, err := uuid.Parse(accountIDStr)
-	if err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid account ID")
+	accountID, ok := s.parseAccountID(w, accountIDStr)
+	if !ok {
 		return
 	}
 
 	noteIDStr := r.PathValue("noteId")
-	noteID, err := uuid.Parse(noteIDStr)
-	if err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid note ID")
+	noteID, ok := s.parseNoteID(w, noteIDStr)
+	if !ok {
 		return
 	}
 
@@ -197,15 +209,14 @@ func (s *Server) handleGetNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.telemetry.GetStatsCollector().IncrementNoteRead(NoteShard1)
+	s.telemetry.GetStatsCollector().IncrementNoteRead(store.NoteShard1)
 	s.writeJSON(w, http.StatusOK, note)
 }
 
 func (s *Server) handleCreateNote(w http.ResponseWriter, r *http.Request) {
 	accountIDStr := r.PathValue("accountId")
-	accountID, err := uuid.Parse(accountIDStr)
-	if err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid account ID")
+	accountID, ok := s.parseAccountID(w, accountIDStr)
+	if !ok {
 		return
 	}
 
@@ -230,22 +241,20 @@ func (s *Server) handleCreateNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.telemetry.GetStatsCollector().IncrementNoteWrite(NoteShard1)
+	s.telemetry.GetStatsCollector().IncrementNoteWrite(store.NoteShard1)
 	s.writeJSON(w, http.StatusCreated, note)
 }
 
 func (s *Server) handleUpdateNote(w http.ResponseWriter, r *http.Request) {
 	accountIDStr := r.PathValue("accountId")
-	accountID, err := uuid.Parse(accountIDStr)
-	if err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid account ID")
+	accountID, ok := s.parseAccountID(w, accountIDStr)
+	if !ok {
 		return
 	}
 
 	noteIDStr := r.PathValue("noteId")
-	noteID, err := uuid.Parse(noteIDStr)
-	if err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid note ID")
+	noteID, ok := s.parseNoteID(w, noteIDStr)
+	if !ok {
 		return
 	}
 
@@ -267,22 +276,20 @@ func (s *Server) handleUpdateNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.telemetry.GetStatsCollector().IncrementNoteWrite(NoteShard1)
+	s.telemetry.GetStatsCollector().IncrementNoteWrite(store.NoteShard1)
 	s.writeJSON(w, http.StatusOK, note)
 }
 
 func (s *Server) handleDeleteNote(w http.ResponseWriter, r *http.Request) {
 	accountIDStr := r.PathValue("accountId")
-	accountID, err := uuid.Parse(accountIDStr)
-	if err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid account ID")
+	accountID, ok := s.parseAccountID(w, accountIDStr)
+	if !ok {
 		return
 	}
 
 	noteIDStr := r.PathValue("noteId")
-	noteID, err := uuid.Parse(noteIDStr)
-	if err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid note ID")
+	noteID, ok := s.parseNoteID(w, noteIDStr)
+	if !ok {
 		return
 	}
 
@@ -297,6 +304,6 @@ func (s *Server) handleDeleteNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.telemetry.GetStatsCollector().IncrementNoteWrite(NoteShard1)
+	s.telemetry.GetStatsCollector().IncrementNoteWrite(store.NoteShard1)
 	w.WriteHeader(http.StatusNoContent)
 }

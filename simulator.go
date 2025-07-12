@@ -126,7 +126,8 @@ func (s *Simulator) runAccountLoop(account store.Account) {
 	
 	// Calculate ticker interval based on requests per minute
 	if s.options.RequestsPerMin > 0 {
-		interval := time.Duration(60000/s.options.RequestsPerMin) * time.Millisecond
+		const MillisecondsPerMinute = 60000
+		interval := time.Duration(MillisecondsPerMinute/s.options.RequestsPerMin) * time.Millisecond
 		accountLoop.ticker = time.NewTicker(interval)
 		defer accountLoop.ticker.Stop()
 	}
@@ -158,7 +159,7 @@ func (al *AccountLoop) createInitialNotes(count int) error {
 			return fmt.Errorf("failed to create note: %w", err)
 		}
 		
-		al.telemetry.GetStatsCollector().IncrementNoteWrite(restapi.NoteShard1)
+		al.telemetry.GetStatsCollector().IncrementNoteWrite(store.NoteShard1)
 		
 		al.notesLock.Lock()
 		al.notes[createdNote.ID] = hashContents(createdNote.Content)
@@ -204,7 +205,7 @@ func (al *AccountLoop) createNote() error {
 		return fmt.Errorf("failed to create note: %w", err)
 	}
 	
-	al.telemetry.GetStatsCollector().IncrementNoteWrite(restapi.NoteShard1)
+	al.telemetry.GetStatsCollector().IncrementNoteWrite(store.NoteShard1)
 	
 	al.notesLock.Lock()
 	al.notes[createdNote.ID] = hashContents(createdNote.Content)
@@ -241,7 +242,7 @@ func (al *AccountLoop) updateNote() error {
 		return fmt.Errorf("failed to update note: %w", err)
 	}
 	
-	al.telemetry.GetStatsCollector().IncrementNoteWrite(restapi.NoteShard1)
+	al.telemetry.GetStatsCollector().IncrementNoteWrite(store.NoteShard1)
 	
 	al.notesLock.Lock()
 	al.notes[updatedNote.ID] = hashContents(updatedNote.Content)
@@ -271,7 +272,7 @@ func (al *AccountLoop) readNote() error {
 		return fmt.Errorf("failed to read note: %w", err)
 	}
 	
-	al.telemetry.GetStatsCollector().IncrementNoteRead(restapi.NoteShard1)
+	al.telemetry.GetStatsCollector().IncrementNoteRead(store.NoteShard1)
 	
 	// Check content consistency
 	actualHash := hashContents(note.Content)
@@ -303,7 +304,7 @@ func (al *AccountLoop) deleteNote() error {
 		return fmt.Errorf("failed to delete note: %w", err)
 	}
 	
-	al.telemetry.GetStatsCollector().IncrementNoteWrite(restapi.NoteShard1)
+	al.telemetry.GetStatsCollector().IncrementNoteWrite(store.NoteShard1)
 	
 	// Remove from local tracking
 	delete(al.notes, randomNoteID)
@@ -317,7 +318,7 @@ func (al *AccountLoop) listNotes() error {
 		return fmt.Errorf("failed to list notes: %w", err)
 	}
 	
-	al.telemetry.GetStatsCollector().IncrementNoteRead(restapi.NoteShard1)
+	al.telemetry.GetStatsCollector().IncrementNoteRead(store.NoteShard1)
 	
 	al.notesLock.RLock()
 	defer al.notesLock.RUnlock()
