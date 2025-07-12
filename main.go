@@ -25,9 +25,10 @@ const (
 func main() {
 	cliMode := flag.Bool("cli", false, "Run in CLI mode with TUI")
 	theme := flag.String("theme", "dark", "Theme for CLI mode (dark or light)")
+	port := flag.String("port", "8080", "Port to run the HTTP server on")
 	flag.Parse()
 
-	if err := Run(*cliMode, *theme); err != nil {
+	if err := Run(*cliMode, *theme, *port); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -42,9 +43,14 @@ func checkPortAvailable(port string) error {
 	return nil
 }
 
-func Run(cliMode bool, theme string) error {
+func Run(cliMode bool, theme, port string) error {
+	// Ensure port has colon prefix
+	if port[0] != ':' {
+		port = ":" + port
+	}
+
 	// Check if port is available before doing any other work
-	if err := checkPortAvailable(ServerPort); err != nil {
+	if err := checkPortAvailable(port); err != nil {
 		return err
 	}
 
@@ -64,7 +70,7 @@ func Run(cliMode bool, theme string) error {
 	tel.Start()
 
 	// Create HTTP server
-	httpServer := createHTTPServer(accountStore, noteStore, tel)
+	httpServer := createHTTPServer(accountStore, noteStore, tel, port)
 	
 	if cliMode {
 		options := cli.CLIOptions{
@@ -106,7 +112,7 @@ func runServer(httpServer *http.Server, shutdownTrigger <-chan error) error {
 	// Start HTTP server in background
 	serverError := make(chan error, 1)
 	go func() {
-		log.Println("Server starting on :8080")
+		log.Printf("Server starting on %s", httpServer.Addr)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			serverError <- err
 		}
@@ -130,13 +136,13 @@ func runServer(httpServer *http.Server, shutdownTrigger <-chan error) error {
 	}
 }
 
-func createHTTPServer(accountStore store.AccountStore, noteStore store.NoteStore, tel *telemetry.Telemetry) *http.Server {
+func createHTTPServer(accountStore store.AccountStore, noteStore store.NoteStore, tel *telemetry.Telemetry, port string) *http.Server {
 	server := NewServer(accountStore, noteStore, tel)
 	mux := http.NewServeMux()
 	server.SetupRoutes(mux)
 
 	return &http.Server{
-		Addr:    ServerPort,
+		Addr:    port,
 		Handler: server.LoggingMiddleware(mux),
 	}
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log"
@@ -31,10 +32,15 @@ func NewServer(accountStore store.AccountStore, noteStore store.NoteStore, tel *
 }
 
 func (s *Server) SetupRoutes(mux *http.ServeMux) {
+	// Health check endpoint
+	mux.HandleFunc("GET /healthz", s.handleHealthCheck)
+
+	// Account management
 	mux.HandleFunc("GET /accounts", s.handleListAccounts)
 	mux.HandleFunc("POST /accounts", s.handleCreateAccount)
 	mux.HandleFunc("PUT /accounts/{id}", s.handleUpdateAccount)
 
+	// Note management
 	mux.HandleFunc("GET /accounts/{accountId}/notes", s.handleListNotes)
 	mux.HandleFunc("GET /accounts/{accountId}/notes/{noteId}", s.handleGetNote)
 	mux.HandleFunc("POST /accounts/{accountId}/notes", s.handleCreateNote)
@@ -49,6 +55,29 @@ func (s *Server) LoggingMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 		log.Printf("%s %s %v", r.Method, r.URL.Path, time.Since(start))
 	})
+}
+
+func (s *Server) handleHealthCheck(w http.ResponseWriter, r *http.Request) {
+	// Simple health check - verify stores are accessible
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+
+	// Test account store
+	if _, err := s.accountStore.ListAccounts(ctx); err != nil {
+		s.writeError(w, http.StatusServiceUnavailable, "Account store unavailable")
+		return
+	}
+
+	// Test note store
+	if _, err := s.noteStore.GetTotalNotes(ctx); err != nil {
+		s.writeError(w, http.StatusServiceUnavailable, "Note store unavailable")
+		return
+	}
+
+	// All checks passed
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"ok","timestamp":"` + time.Now().UTC().Format(time.RFC3339) + `"}`))
 }
 
 func (s *Server) writeError(w http.ResponseWriter, statusCode int, message string) {
