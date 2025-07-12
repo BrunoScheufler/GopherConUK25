@@ -24,6 +24,7 @@ type AccountStore interface {
 	ListAccounts(ctx context.Context) ([]Account, error)
 	CreateAccount(ctx context.Context, a Account) error
 	UpdateAccount(ctx context.Context, a Account) error
+	HealthCheck(ctx context.Context) error
 }
 
 type NoteStore interface {
@@ -33,6 +34,7 @@ type NoteStore interface {
 	UpdateNote(ctx context.Context, accountID uuid.UUID, note Note) error
 	DeleteNote(ctx context.Context, accountID uuid.UUID, note Note) error
 	GetTotalNotes(ctx context.Context) (int, error)
+	HealthCheck(ctx context.Context) error
 }
 
 // Custom error types for better error handling

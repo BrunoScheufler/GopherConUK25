@@ -58,18 +58,18 @@ func (s *Server) LoggingMiddleware(next http.Handler) http.Handler {
 }
 
 func (s *Server) handleHealthCheck(w http.ResponseWriter, r *http.Request) {
-	// Simple health check - verify stores are accessible
+	// Lightweight health check using dedicated health check methods
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 
-	// Test account store
-	if _, err := s.accountStore.ListAccounts(ctx); err != nil {
+	// Test account store connectivity
+	if err := s.accountStore.HealthCheck(ctx); err != nil {
 		s.writeError(w, http.StatusServiceUnavailable, "Account store unavailable")
 		return
 	}
 
-	// Test note store
-	if _, err := s.noteStore.GetTotalNotes(ctx); err != nil {
+	// Test note store connectivity
+	if err := s.noteStore.HealthCheck(ctx); err != nil {
 		s.writeError(w, http.StatusServiceUnavailable, "Note store unavailable")
 		return
 	}

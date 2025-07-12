@@ -75,6 +75,11 @@ func (s sqliteAccountStore) UpdateAccount(ctx context.Context, a Account) error 
 	return nil
 }
 
+func (s sqliteAccountStore) HealthCheck(ctx context.Context) error {
+	// Simple ping query to check database connectivity
+	return s.db.PingContext(ctx)
+}
+
 type sqliteNoteStore struct {
 	db *sql.DB
 }
@@ -198,6 +203,11 @@ func (s sqliteNoteStore) GetTotalNotes(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("failed to count notes: %w", err)
 	}
 	return count, nil
+}
+
+func (s sqliteNoteStore) HealthCheck(ctx context.Context) error {
+	// Simple ping query to check database connectivity
+	return s.db.PingContext(ctx)
 }
 
 // Close implements the Store interface for sqliteAccountStore
