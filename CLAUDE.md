@@ -26,6 +26,8 @@ This is a GopherCon UK 2025 presentation project focused on "Building a framewor
 - **Data Directory Pattern**: Creates a `.data/` directory in the working directory for SQLite database files
 - **Graceful Shutdown**: HTTP server supports graceful shutdown with signal handling
 - **Dual Mode Operation**: Can run as HTTP-only server or combined HTTP server + CLI interface
+- **Health Check Validation**: CLI mode validates server health before launching interface
+- **Port Availability Check**: Verifies port is free before initialization to fail fast
 
 ## Development Commands
 
@@ -34,6 +36,8 @@ This is a GopherCon UK 2025 presentation project focused on "Building a framewor
 go run .                    # Run HTTP server only
 go run . -cli               # Run HTTP server + CLI interface
 go run . -cli -theme=light  # Run with light theme
+go run . --port=3000        # Run on custom port
+go run . -cli --port=3000   # Run CLI mode on custom port
 go build -o app .          # Build binary
 ```
 
@@ -214,6 +218,33 @@ git commit -m "fix stuff and add features"  # Vague and too broad
 - **Clear history**: Git log becomes a readable story of development
 - **Collaboration**: Reduces merge conflicts in team environments
 
+## Startup Sequence
+
+The application follows a specific startup order to ensure reliability:
+
+### HTTP-Only Mode (`go run .`)
+1. **Port Availability Check**: Verify the port is free before initialization
+2. **Store Initialization**: Create account and note stores with database connections
+3. **Telemetry Setup**: Initialize logging and statistics collection
+4. **HTTP Server Start**: Launch server and listen for requests
+5. **Signal Handling**: Wait for shutdown signals (Ctrl+C, SIGTERM)
+
+### CLI Mode (`go run . -cli`)
+1. **Port Availability Check**: Verify the port is free before initialization  
+2. **Store Initialization**: Create account and note stores with database connections
+3. **Telemetry Setup**: Initialize logging and statistics collection
+4. **HTTP Server Start**: Launch server in background
+5. **Health Check Validation**: Wait for `/healthz` endpoint to return 200 OK
+6. **CLI Launch**: Start Terminal User Interface after health check passes
+7. **Concurrent Operation**: Both HTTP server and CLI run simultaneously
+8. **Graceful Shutdown**: CLI exit triggers server shutdown
+
+This order ensures:
+- **Fast Failure**: Port conflicts are detected immediately
+- **Server Readiness**: CLI only starts when HTTP server is operational
+- **Store Validation**: Health check confirms database connectivity
+- **Reliable Operation**: Both interfaces are guaranteed to be functional
+
 ## Implementation Status
 
 The project is functionally complete with multiple interfaces:
@@ -227,6 +258,9 @@ The project is functionally complete with multiple interfaces:
 - ✅ **Main Application**: Dual-mode server with graceful shutdown and CLI integration
 
 ### API Endpoints
+
+**Health Check:**
+- `GET /healthz` - Server health check (validates store connectivity)
 
 **Account Management:**
 - `GET /accounts` - List all accounts
