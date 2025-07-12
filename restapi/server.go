@@ -1,4 +1,4 @@
-package main
+package restapi
 
 import (
 	"context"
@@ -13,14 +13,14 @@ import (
 	"github.com/google/uuid"
 )
 
+const (
+	NoteShard1 = "notes1"
+)
+
 type Server struct {
 	accountStore store.AccountStore
 	noteStore    store.NoteStore
 	telemetry    *telemetry.Telemetry
-}
-
-type ErrorResponse struct {
-	Error string `json:"error"`
 }
 
 func NewServer(accountStore store.AccountStore, noteStore store.NoteStore, tel *telemetry.Telemetry) *Server {
@@ -100,6 +100,7 @@ func (s *Server) handleListAccounts(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusInternalServerError, "Failed to list accounts")
 		return
 	}
+	s.telemetry.GetStatsCollector().IncrementAccountRead()
 	s.writeJSON(w, http.StatusOK, accounts)
 }
 
@@ -119,6 +120,7 @@ func (s *Server) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.telemetry.GetStatsCollector().IncrementAccountWrite()
 	s.writeJSON(w, http.StatusCreated, account)
 }
 
@@ -147,6 +149,7 @@ func (s *Server) handleUpdateAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.telemetry.GetStatsCollector().IncrementAccountWrite()
 	s.writeJSON(w, http.StatusOK, account)
 }
 
@@ -164,6 +167,7 @@ func (s *Server) handleListNotes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.telemetry.GetStatsCollector().IncrementNoteRead(NoteShard1)
 	s.writeJSON(w, http.StatusOK, notes)
 }
 
@@ -193,6 +197,7 @@ func (s *Server) handleGetNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.telemetry.GetStatsCollector().IncrementNoteRead(NoteShard1)
 	s.writeJSON(w, http.StatusOK, note)
 }
 
@@ -225,6 +230,7 @@ func (s *Server) handleCreateNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.telemetry.GetStatsCollector().IncrementNoteWrite(NoteShard1)
 	s.writeJSON(w, http.StatusCreated, note)
 }
 
@@ -261,6 +267,7 @@ func (s *Server) handleUpdateNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.telemetry.GetStatsCollector().IncrementNoteWrite(NoteShard1)
 	s.writeJSON(w, http.StatusOK, note)
 }
 
@@ -290,5 +297,6 @@ func (s *Server) handleDeleteNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.telemetry.GetStatsCollector().IncrementNoteWrite(NoteShard1)
 	w.WriteHeader(http.StatusNoContent)
 }

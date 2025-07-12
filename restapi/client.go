@@ -1,4 +1,4 @@
-package main
+package restapi
 
 import (
 	"bytes"
@@ -16,10 +16,6 @@ import (
 type RestAPIClient struct {
 	baseURL    string
 	httpClient *http.Client
-}
-
-type ErrorResponse struct {
-	Error string `json:"error"`
 }
 
 func NewRestAPIClient(baseURL string) *RestAPIClient {

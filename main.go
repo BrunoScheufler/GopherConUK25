@@ -13,13 +13,11 @@ import (
 	"time"
 
 	"github.com/brunoscheufler/gopherconuk25/cli"
+	"github.com/brunoscheufler/gopherconuk25/restapi"
 	"github.com/brunoscheufler/gopherconuk25/store"
 	"github.com/brunoscheufler/gopherconuk25/telemetry"
 )
 
-const (
-	NoteShard1 = "notes1"
-)
 
 func main() {
 	cliMode := flag.Bool("cli", false, "Run in CLI mode with TUI")
@@ -27,10 +25,10 @@ func main() {
 	port := flag.String("port", "8080", "Port to run the HTTP server on")
 	
 	// Load generator flags
-	enableLoadGen := flag.Bool("load-gen", false, "Enable load generator")
-	accountCount := flag.Int("accounts", 5, "Number of accounts for load generator")
+	enableLoadGen := flag.Bool("gen", false, "Enable load generator")
+	accountCount := flag.Int("concurrency", 5, "Number of accounts for load generator")
 	notesPerAccount := flag.Int("notes-per-account", 3, "Number of notes per account for load generator")
-	requestsPerMin := flag.Int("requests-per-min", 60, "Requests per minute for load generator")
+	requestsPerMin := flag.Int("rpm", 60, "Requests per minute for load generator")
 	
 	flag.Parse()
 
@@ -80,7 +78,7 @@ func Run(cliMode bool, theme, port string, enableLoadGen bool, accountCount, not
 		return err
 	}
 
-	noteStore, err := store.NewNoteStore(NoteShard1)
+	noteStore, err := store.NewNoteStore(restapi.NoteShard1)
 	if err != nil {
 		return fmt.Errorf("could not create note store: %w", err)
 	}
@@ -236,7 +234,7 @@ func runServer(httpServer *http.Server, shutdownTrigger <-chan error, simulator 
 }
 
 func createHTTPServer(accountStore store.AccountStore, noteStore store.NoteStore, tel *telemetry.Telemetry, port string) *http.Server {
-	server := NewServer(accountStore, noteStore, tel)
+	server := restapi.NewServer(accountStore, noteStore, tel)
 	mux := http.NewServeMux()
 	server.SetupRoutes(mux)
 
