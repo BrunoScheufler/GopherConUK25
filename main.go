@@ -43,6 +43,26 @@ func checkPortAvailable(port string) error {
 	return nil
 }
 
+// checkServerHealth validates that the server is ready by calling /healthz
+func checkServerHealth(port string) error {
+	client := &http.Client{Timeout: 5 * time.Second}
+	url := fmt.Sprintf("http://localhost%s/healthz", port)
+
+	// Retry health check up to 10 times with 200ms intervals
+	for i := 0; i < 10; i++ {
+		resp, err := client.Get(url)
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return nil
+			}
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	return fmt.Errorf("server health check failed after retries")
+}
+
 func Run(cliMode bool, theme, port string) error {
 	// Ensure port has colon prefix
 	if port[0] != ':' {
@@ -85,13 +105,44 @@ func Run(cliMode bool, theme, port string) error {
 }
 
 func runWithCLI(httpServer *http.Server, accountStore store.AccountStore, noteStore store.NoteStore, tel *telemetry.Telemetry, options cli.CLIOptions) error {
+	// Start server first, then validate health before starting CLI
+	serverError := make(chan error, 1)
+	go func() {
+		log.Printf("Server starting on %s", httpServer.Addr)
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			serverError <- err
+		}
+	}()
+
+	// Wait for server to be healthy before starting CLI
+	log.Println("Waiting for server health check...")
+	if err := checkServerHealth(httpServer.Addr); err != nil {
+		return fmt.Errorf("server failed health check: %w", err)
+	}
+	log.Println("Server health check passed, starting CLI...")
+
 	// Start CLI in foreground
 	cliError := make(chan error, 1)
 	go func() {
 		cliError <- cli.RunCLI(accountStore, noteStore, tel, options)
 	}()
 
-	return runServer(httpServer, cliError)
+	// Wait for either server error or CLI exit
+	select {
+	case err := <-serverError:
+		return fmt.Errorf("server failed: %w", err)
+	case err := <-cliError:
+		// CLI exited, shutdown server gracefully
+		log.Println("Shutting down server...")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		
+		if shutdownErr := httpServer.Shutdown(ctx); shutdownErr != nil {
+			return fmt.Errorf("server shutdown failed: %w", shutdownErr)
+		}
+		
+		return err // Return the CLI error (if any)
+	}
 }
 
 func runHTTPServer(httpServer *http.Server) error {
