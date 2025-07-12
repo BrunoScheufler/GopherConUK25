@@ -6,26 +6,26 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gdamore/tcell/v2"
-	"github.com/rivo/tview"
 	"github.com/brunoscheufler/gopherconuk25/store"
 	"github.com/brunoscheufler/gopherconuk25/telemetry"
+	"github.com/gdamore/tcell/v2"
+	"github.com/rivo/tview"
 )
 
 type CLIApp struct {
-	app        *tview.Application
-	statsView  *tview.TextView
-	logView    *tview.TextView
-	telemetry  *telemetry.Telemetry
-	options    CLIOptions
-	
+	app       *tview.Application
+	statsView *tview.TextView
+	logView   *tview.TextView
+	telemetry *telemetry.Telemetry
+	options   CLIOptions
+
 	ctx    context.Context
 	cancel context.CancelFunc
 }
 
 func NewCLIApp(accountStore store.AccountStore, noteStore store.NoteStore, tel *telemetry.Telemetry, options CLIOptions) *CLIApp {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	return &CLIApp{
 		app:       tview.NewApplication(),
 		telemetry: tel,
@@ -64,8 +64,8 @@ func (c *CLIApp) Setup() {
 	// Create main layout with 2:1 ratio (2/3 top, 1/3 bottom)
 	mainFlex := tview.NewFlex()
 	mainFlex.SetDirection(tview.FlexRow)
-	mainFlex.AddItem(c.statsView, 0, 2, false)  // 2/3 of screen
-	mainFlex.AddItem(c.logView, 0, 1, false)    // 1/3 of screen
+	mainFlex.AddItem(c.statsView, 0, 2, false) // 2/3 of screen
+	mainFlex.AddItem(c.logView, 0, 1, false)   // 1/3 of screen
 
 	c.app.SetRoot(mainFlex, true)
 	c.app.EnableMouse(true)
@@ -96,12 +96,12 @@ func (c *CLIApp) GetLogCapture() *telemetry.LogCapture {
 func (c *CLIApp) Start() error {
 	// Start stats update loop
 	go c.statsUpdateLoop()
-	
+
 	// Load existing logs after app starts
 	go func() {
 		c.loadExistingLogs()
 	}()
-	
+
 	// Start the TUI
 	return c.app.Run()
 }
@@ -164,7 +164,7 @@ func (c *CLIApp) appendLog(message string) {
 func (c *CLIApp) loadExistingLogs() {
 	logs := c.telemetry.LogCapture.GetAllLogs()
 	theme := GetTheme(c.options.Theme)
-	
+
 	if len(logs) == 0 {
 		waitingColor := "[grey]"
 		if theme.Name == "light" {

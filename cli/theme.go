@@ -3,49 +3,49 @@ package cli
 import (
 	"fmt"
 
+	"github.com/brunoscheufler/gopherconuk25/telemetry"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
-	"github.com/brunoscheufler/gopherconuk25/telemetry"
 )
 
 type Theme struct {
-	Name            string
-	Foreground      tcell.Color
-	Border          tcell.Color
-	Title           tcell.Color
-	Highlight       tcell.Color
-	Secondary       tcell.Color
-	Accent          tcell.Color
-	Success         tcell.Color
-	Warning         tcell.Color
-	Error           tcell.Color
+	Name       string
+	Foreground tcell.Color
+	Border     tcell.Color
+	Title      tcell.Color
+	Highlight  tcell.Color
+	Secondary  tcell.Color
+	Accent     tcell.Color
+	Success    tcell.Color
+	Warning    tcell.Color
+	Error      tcell.Color
 }
 
 var (
 	DarkTheme = Theme{
-		Name:            "dark",
-		Foreground:      tcell.ColorWhite,
-		Border:          tcell.ColorBlue,
-		Title:           tcell.ColorYellow,
-		Highlight:       tcell.ColorGreen,
-		Secondary:       tcell.ColorGray,
-		Accent:          tcell.ColorAqua,
-		Success:         tcell.ColorGreen,
-		Warning:         tcell.ColorYellow,
-		Error:           tcell.ColorRed,
+		Name:       "dark",
+		Foreground: tcell.ColorWhite,
+		Border:     tcell.ColorBlue,
+		Title:      tcell.ColorYellow,
+		Highlight:  tcell.ColorGreen,
+		Secondary:  tcell.ColorGray,
+		Accent:     tcell.ColorAqua,
+		Success:    tcell.ColorGreen,
+		Warning:    tcell.ColorYellow,
+		Error:      tcell.ColorRed,
 	}
 
 	LightTheme = Theme{
-		Name:            "light",
-		Foreground:      tcell.ColorBlack,
-		Border:          tcell.ColorNavy,
-		Title:           tcell.ColorDarkBlue,
-		Highlight:       tcell.ColorDarkGreen,
-		Secondary:       tcell.ColorDarkGray,
-		Accent:          tcell.ColorTeal,
-		Success:         tcell.ColorDarkGreen,
-		Warning:         tcell.ColorOrange,
-		Error:           tcell.ColorDarkRed,
+		Name:       "light",
+		Foreground: tcell.ColorBlack,
+		Border:     tcell.ColorNavy,
+		Title:      tcell.ColorDarkBlue,
+		Highlight:  tcell.ColorDarkGreen,
+		Secondary:  tcell.ColorDarkGray,
+		Accent:     tcell.ColorTeal,
+		Success:    tcell.ColorDarkGreen,
+		Warning:    tcell.ColorOrange,
+		Error:      tcell.ColorDarkRed,
 	}
 )
 
@@ -92,7 +92,7 @@ func FormatStatsWithTheme(stats *telemetry.Stats, theme Theme) string {
 		primaryColor := "[black]"
 		secondaryColor := "[darkgray]"
 		accentColor := "[teal]"
-		
+
 		return titleColor + `╭─ System Stats ─────────────────────────────────────╮
 ` + primaryColor + `│ Accounts: ` + accentColor + `%-10d` + primaryColor + `  Notes: ` + accentColor + `%-15d` + primaryColor + ` │
 │ Total Requests: ` + accentColor + `%-10d` + primaryColor + `  Rate: ` + accentColor + `%-8d/sec` + primaryColor + ` │
@@ -103,7 +103,7 @@ func FormatStatsWithTheme(stats *telemetry.Stats, theme Theme) string {
 
 	// Dark theme color codes (default)
 	titleColor := "[yellow]"
-	primaryColor := "[white]" 
+	primaryColor := "[white]"
 	secondaryColor := "[gray]"
 	accentColor := "[aqua]"
 
@@ -117,13 +117,13 @@ func FormatStatsWithTheme(stats *telemetry.Stats, theme Theme) string {
 
 func FormatLogEntryWithTheme(entry telemetry.LogEntry, theme Theme) string {
 	if theme.Name == "light" {
-		return fmt.Sprintf("[darkgray][%s][-] %s", 
-			entry.Timestamp.Format("15:04:05"), 
+		return fmt.Sprintf("[darkgray][%s][-] %s",
+			entry.Timestamp.Format("15:04:05"),
 			entry.Message)
 	}
-	
+
 	// Dark theme (default)
-	return fmt.Sprintf("[gray][%s][-] %s", 
-		entry.Timestamp.Format("15:04:05"), 
+	return fmt.Sprintf("[gray][%s][-] %s",
+		entry.Timestamp.Format("15:04:05"),
 		entry.Message)
 }

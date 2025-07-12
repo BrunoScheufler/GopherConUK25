@@ -19,7 +19,6 @@ import (
 
 const (
 	NoteShard1 = "notes1"
-	ServerPort = ":8080"
 )
 
 func main() {
@@ -32,7 +31,7 @@ func main() {
 		log.Fatal(err)
 	}
 }
- 
+
 // checkPortAvailable checks if the given port is available for binding
 func checkPortAvailable(port string) error {
 	listener, err := net.Listen("tcp", port)
@@ -91,7 +90,7 @@ func Run(cliMode bool, theme, port string) error {
 
 	// Create HTTP server
 	httpServer := createHTTPServer(accountStore, noteStore, tel, port)
-	
+
 	if cliMode {
 		options := cli.CLIOptions{
 			Theme: theme,
@@ -136,11 +135,11 @@ func runWithCLI(httpServer *http.Server, accountStore store.AccountStore, noteSt
 		log.Println("Shutting down server...")
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		
+
 		if shutdownErr := httpServer.Shutdown(ctx); shutdownErr != nil {
 			return fmt.Errorf("server shutdown failed: %w", shutdownErr)
 		}
-		
+
 		return err // Return the CLI error (if any)
 	}
 }
@@ -149,7 +148,7 @@ func runHTTPServer(httpServer *http.Server) error {
 	// Set up signal handling for graceful shutdown
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-	
+
 	stopError := make(chan error, 1)
 	go func() {
 		<-stop
@@ -178,11 +177,11 @@ func runServer(httpServer *http.Server, shutdownTrigger <-chan error) error {
 		log.Println("Shutting down server...")
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		
+
 		if shutdownErr := httpServer.Shutdown(ctx); shutdownErr != nil {
 			return fmt.Errorf("server shutdown failed: %w", shutdownErr)
 		}
-		
+
 		return err // Return the original trigger error (if any)
 	}
 }

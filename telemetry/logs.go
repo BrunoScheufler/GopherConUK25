@@ -1,7 +1,6 @@
 package telemetry
 
 import (
-	"fmt"
 	"io"
 	"sync"
 	"time"
@@ -88,8 +87,3 @@ func (lc *LogCapture) GetAllLogs() []LogEntry {
 	return result
 }
 
-func FormatLogEntry(entry LogEntry) string {
-	return fmt.Sprintf("[%s] %s", 
-		entry.Timestamp.Format("15:04:05"), 
-		entry.Message)
-}

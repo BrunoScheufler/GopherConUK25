@@ -13,29 +13,29 @@ import (
 type StatsCollector struct {
 	accountStore store.AccountStore
 	noteStore    store.NoteStore
-	
+
 	// Request counters
 	totalRequests   int64
 	requestsPerSec  int64
 	lastRequestTime time.Time
-	
+
 	// System stats
 	startTime time.Time
-	
+
 	// Context for graceful shutdown
 	ctx    context.Context
 	cancel context.CancelFunc
 }
 
 type Stats struct {
-	AccountCount    int
-	NoteCount       int
-	TotalRequests   int64
-	RequestsPerSec  int64
-	Uptime          time.Duration
-	GoRoutines      int
-	MemoryUsage     string
-	LastUpdated     time.Time
+	AccountCount   int
+	NoteCount      int
+	TotalRequests  int64
+	RequestsPerSec int64
+	Uptime         time.Duration
+	GoRoutines     int
+	MemoryUsage    string
+	LastUpdated    time.Time
 }
 
 func NewStatsCollector(accountStore store.AccountStore, noteStore store.NoteStore) *StatsCollector {
@@ -98,7 +98,7 @@ func (sc *StatsCollector) StartRequestRateCalculation() {
 	go func() {
 		ticker := time.NewTicker(1 * time.Second)
 		defer ticker.Stop()
-		
+
 		lastTotal := int64(0)
 		for {
 			select {
