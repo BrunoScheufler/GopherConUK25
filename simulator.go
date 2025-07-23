@@ -245,19 +245,19 @@ func (al *AccountLoop) createNote() error {
 }
 
 func (al *AccountLoop) updateNote() error {
-	al.notesLock.RLock()
+	al.notesLock.Lock()
+	defer al.notesLock.Unlock()
+	
 	if len(al.notes) == 0 {
-		al.notesLock.RUnlock()
 		return nil // No notes to update
 	}
 
-	// Get a random note ID
+	// Get a random note ID while holding the lock
 	noteIDs := make([]uuid.UUID, 0, len(al.notes))
 	for noteID := range al.notes {
 		noteIDs = append(noteIDs, noteID)
 	}
 	randomNoteID := noteIDs[rand.Intn(len(noteIDs))]
-	al.notesLock.RUnlock()
 
 	newContent := fmt.Sprintf("Updated at %s", time.Now().Format(time.RFC3339))
 	note := store.Note{
@@ -274,9 +274,8 @@ func (al *AccountLoop) updateNote() error {
 
 	al.telemetry.GetStatsCollector().IncrementNoteWrite(store.NoteShard1)
 
-	al.notesLock.Lock()
+	// Update the hash while still holding the lock
 	al.notes[updatedNote.ID] = hashContents(updatedNote.Content)
-	al.notesLock.Unlock()
 
 	return nil
 }
@@ -288,7 +287,7 @@ func (al *AccountLoop) readNote() error {
 		return nil // No notes to read
 	}
 
-	// Get a random note ID and its expected hash
+	// Get a random note ID and its expected hash while holding the lock
 	noteIDs := make([]uuid.UUID, 0, len(al.notes))
 	for noteID := range al.notes {
 		noteIDs = append(noteIDs, noteID)
@@ -321,7 +320,7 @@ func (al *AccountLoop) deleteNote() error {
 		return nil // No notes to delete
 	}
 
-	// Get a random note ID
+	// Get a random note ID while holding the lock
 	noteIDs := make([]uuid.UUID, 0, len(al.notes))
 	for noteID := range al.notes {
 		noteIDs = append(noteIDs, noteID)
