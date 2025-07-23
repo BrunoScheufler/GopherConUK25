@@ -41,12 +41,12 @@ func (s DeploymentStatus) String() string {
 
 // DeploymentController manages rolling releases of data proxy processes
 type DeploymentController struct {
-	mu         sync.RWMutex
-	current    *DataProxyProcess
-	previous   *DataProxyProcess
-	status     DeploymentStatus
-	deployMu   sync.Mutex // Separate mutex for deploy operations
-	telemetry  *telemetry.Telemetry
+	mu        sync.RWMutex
+	current   *DataProxyProcess
+	previous  *DataProxyProcess
+	status    DeploymentStatus
+	deployMu  sync.Mutex // Separate mutex for deploy operations
+	telemetry *telemetry.Telemetry
 }
 
 // NewDeploymentController creates a new deployment controller
@@ -100,7 +100,7 @@ func (dc *DeploymentController) Deploy() error {
 	if currentProxy == nil {
 		// Initial deployment - no current proxy exists
 		dc.setStatus(StatusRolloutLaunchNew)
-		
+
 		dataProxyProcess, err := LaunchDataProxy(1)
 		if err != nil {
 			dc.setStatus(StatusInitial)
@@ -115,7 +115,7 @@ func (dc *DeploymentController) Deploy() error {
 		dc.mu.Lock()
 		dc.current = dataProxyProcess
 		dc.mu.Unlock()
-		
+
 		dc.setStatus(StatusReady)
 		return nil
 	}
@@ -175,8 +175,8 @@ func (dc *DeploymentController) Deploy() error {
 	return nil
 }
 
-// Shutdown stops all running proxy processes
-func (dc *DeploymentController) Shutdown() {
+// Close deployment child proceses and cleans up resources.
+func (dc *DeploymentController) Close() error {
 	dc.mu.Lock()
 	current := dc.current
 	previous := dc.previous
@@ -190,6 +190,7 @@ func (dc *DeploymentController) Shutdown() {
 	if previous != nil {
 		previous.Shutdown()
 	}
+	return nil
 }
 
 // NoteStore interface implementation - forwards calls to current/previous proxies
@@ -292,9 +293,9 @@ func (dc *DeploymentController) selectProxy() *DataProxyProcess {
 func (dc *DeploymentController) SetTelemetry(tel *telemetry.Telemetry) {
 	dc.mu.Lock()
 	defer dc.mu.Unlock()
-	
+
 	dc.telemetry = tel
-	
+
 	// Update existing proxy clients with stats collector
 	if tel != nil {
 		if dc.current != nil {
@@ -306,7 +307,6 @@ func (dc *DeploymentController) SetTelemetry(tel *telemetry.Telemetry) {
 	}
 }
 
-
 // waitForProxyReady waits for a proxy to be ready using the Ready RPC method
 func (dc *DeploymentController) waitForProxyReady(proxy *DataProxyProcess) error {
 	if proxy == nil {
@@ -317,14 +317,14 @@ func (dc *DeploymentController) waitForProxyReady(proxy *DataProxyProcess) error
 	maxAttempts := 10
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		
+
 		if err := proxy.ProxyClient.Ready(ctx); err == nil {
 			cancel()
 			return nil
 		}
-		
+
 		cancel()
-		
+
 		// Don't wait after the last attempt
 		if attempt < maxAttempts-1 {
 			time.Sleep(1 * time.Second)
@@ -416,3 +416,4 @@ func (dc *DeploymentController) ingestDataStoreStats(stats *telemetry.DataStoreS
 		}
 	}
 }
+

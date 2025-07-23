@@ -3,11 +3,11 @@ package store
 import (
 	"context"
 	"errors"
+	"io"
 	"time"
 
 	"github.com/google/uuid"
 )
-
 
 type Account struct {
 	ID   uuid.UUID `json:"id"`
@@ -33,6 +33,7 @@ type AccountStore interface {
 	CreateAccount(ctx context.Context, a Account) error
 	UpdateAccount(ctx context.Context, a Account) error
 	HealthCheck(ctx context.Context) error
+	io.Closer
 }
 
 type NoteStore interface {
@@ -44,6 +45,7 @@ type NoteStore interface {
 	CountNotes(ctx context.Context, accountID uuid.UUID) (int, error)
 	GetTotalNotes(ctx context.Context) (int, error)
 	HealthCheck(ctx context.Context) error
+	io.Closer
 }
 
 // Custom error types for better error handling
@@ -66,9 +68,4 @@ func DefaultDatabaseConfig() DatabaseConfig {
 		MaxIdleConns:    5,
 		ConnMaxLifetime: 5 * time.Minute,
 	}
-}
-
-// Store interface for proper resource management
-type Store interface {
-	Close() error
 }

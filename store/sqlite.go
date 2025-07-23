@@ -4,8 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
+	"math/rand"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,7 +21,19 @@ type sqliteAccountStore struct {
 
 func (s *sqliteAccountStore) ListAccounts(ctx context.Context) ([]Account, error) {
 	query := `SELECT id, name FROM accounts`
-	rows, err := s.db.QueryContext(ctx, query)
+	
+	retryConfig := RetryConfig{
+		MaxRetries: 5,
+		BaseDelay:  10 * time.Millisecond,
+		MaxDelay:   1 * time.Second,
+	}
+	
+	var rows *sql.Rows
+	err := retryOnBusy(ctx, retryConfig, func() error {
+		var queryErr error
+		rows, queryErr = s.db.QueryContext(ctx, query)
+		return queryErr
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to query accounts: %w", err)
 	}
@@ -50,7 +65,17 @@ func (s *sqliteAccountStore) ListAccounts(ctx context.Context) ([]Account, error
 
 func (s *sqliteAccountStore) CreateAccount(ctx context.Context, a Account) error {
 	query := `INSERT INTO accounts (id, name) VALUES (?, ?)`
-	_, err := s.db.ExecContext(ctx, query, a.ID.String(), a.Name)
+
+	retryConfig := RetryConfig{
+		MaxRetries: 5,
+		BaseDelay:  10 * time.Millisecond,
+		MaxDelay:   1 * time.Second,
+	}
+
+	err := retryOnBusy(ctx, retryConfig, func() error {
+		_, execErr := s.db.ExecContext(ctx, query, a.ID.String(), a.Name)
+		return execErr
+	})
 	if err != nil {
 		return fmt.Errorf("failed to create account: %w", err)
 	}
@@ -59,7 +84,19 @@ func (s *sqliteAccountStore) CreateAccount(ctx context.Context, a Account) error
 
 func (s *sqliteAccountStore) UpdateAccount(ctx context.Context, a Account) error {
 	query := `UPDATE accounts SET name = ? WHERE id = ?`
-	result, err := s.db.ExecContext(ctx, query, a.Name, a.ID.String())
+
+	retryConfig := RetryConfig{
+		MaxRetries: 5,
+		BaseDelay:  10 * time.Millisecond,
+		MaxDelay:   1 * time.Second,
+	}
+
+	var result sql.Result
+	err := retryOnBusy(ctx, retryConfig, func() error {
+		var execErr error
+		result, execErr = s.db.ExecContext(ctx, query, a.Name, a.ID.String())
+		return execErr
+	})
 	if err != nil {
 		return fmt.Errorf("failed to update account: %w", err)
 	}
@@ -87,7 +124,19 @@ type sqliteNoteStore struct {
 
 func (s *sqliteNoteStore) ListNotes(ctx context.Context, accountID uuid.UUID) ([]Note, error) {
 	query := `SELECT id, creator, created_at, updated_at, content FROM notes WHERE creator = ?`
-	rows, err := s.db.QueryContext(ctx, query, accountID.String())
+	
+	retryConfig := RetryConfig{
+		MaxRetries: 5,
+		BaseDelay:  10 * time.Millisecond,
+		MaxDelay:   1 * time.Second,
+	}
+	
+	var rows *sql.Rows
+	err := retryOnBusy(ctx, retryConfig, func() error {
+		var queryErr error
+		rows, queryErr = s.db.QueryContext(ctx, query, accountID.String())
+		return queryErr
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to query notes: %w", err)
 	}
@@ -128,12 +177,21 @@ func (s *sqliteNoteStore) ListNotes(ctx context.Context, accountID uuid.UUID) ([
 
 func (s *sqliteNoteStore) GetNote(ctx context.Context, accountID, noteID uuid.UUID) (*Note, error) {
 	query := `SELECT id, creator, created_at, updated_at, content FROM notes WHERE id = ? AND creator = ?`
-	row := s.db.QueryRowContext(ctx, query, noteID.String(), accountID.String())
-
+	
+	retryConfig := RetryConfig{
+		MaxRetries: 5,
+		BaseDelay:  10 * time.Millisecond,
+		MaxDelay:   1 * time.Second,
+	}
+	
 	var note Note
 	var idStr, creatorStr string
 	var createdAtMillis, updatedAtMillis int64
-	err := row.Scan(&idStr, &creatorStr, &createdAtMillis, &updatedAtMillis, &note.Content)
+	
+	err := retryOnBusy(ctx, retryConfig, func() error {
+		row := s.db.QueryRowContext(ctx, query, noteID.String(), accountID.String())
+		return row.Scan(&idStr, &creatorStr, &createdAtMillis, &updatedAtMillis, &note.Content)
+	})
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -159,7 +217,17 @@ func (s *sqliteNoteStore) GetNote(ctx context.Context, accountID, noteID uuid.UU
 
 func (s *sqliteNoteStore) CreateNote(ctx context.Context, accountID uuid.UUID, note Note) error {
 	query := `INSERT INTO notes (id, creator, created_at, updated_at, content) VALUES (?, ?, ?, ?, ?)`
-	_, err := s.db.ExecContext(ctx, query, note.ID.String(), accountID.String(), note.CreatedAt.UnixMilli(), note.UpdatedAt.UnixMilli(), note.Content)
+
+	retryConfig := RetryConfig{
+		MaxRetries: 5,
+		BaseDelay:  10 * time.Millisecond,
+		MaxDelay:   1 * time.Second,
+	}
+
+	err := retryOnBusy(ctx, retryConfig, func() error {
+		_, execErr := s.db.ExecContext(ctx, query, note.ID.String(), accountID.String(), note.CreatedAt.UnixMilli(), note.UpdatedAt.UnixMilli(), note.Content)
+		return execErr
+	})
 	if err != nil {
 		return fmt.Errorf("failed to create note: %w", err)
 	}
@@ -168,7 +236,19 @@ func (s *sqliteNoteStore) CreateNote(ctx context.Context, accountID uuid.UUID, n
 
 func (s *sqliteNoteStore) UpdateNote(ctx context.Context, accountID uuid.UUID, note Note) error {
 	query := `UPDATE notes SET content = ?, updated_at = ? WHERE id = ? AND creator = ?`
-	result, err := s.db.ExecContext(ctx, query, note.Content, note.UpdatedAt.UnixMilli(), note.ID.String(), accountID.String())
+
+	retryConfig := RetryConfig{
+		MaxRetries: 5,
+		BaseDelay:  10 * time.Millisecond,
+		MaxDelay:   1 * time.Second,
+	}
+
+	var result sql.Result
+	err := retryOnBusy(ctx, retryConfig, func() error {
+		var execErr error
+		result, execErr = s.db.ExecContext(ctx, query, note.Content, note.UpdatedAt.UnixMilli(), note.ID.String(), accountID.String())
+		return execErr
+	})
 	if err != nil {
 		return fmt.Errorf("failed to update note: %w", err)
 	}
@@ -187,7 +267,19 @@ func (s *sqliteNoteStore) UpdateNote(ctx context.Context, accountID uuid.UUID, n
 
 func (s *sqliteNoteStore) DeleteNote(ctx context.Context, accountID uuid.UUID, note Note) error {
 	query := `DELETE FROM notes WHERE id = ? AND creator = ?`
-	result, err := s.db.ExecContext(ctx, query, note.ID.String(), accountID.String())
+
+	retryConfig := RetryConfig{
+		MaxRetries: 5,
+		BaseDelay:  10 * time.Millisecond,
+		MaxDelay:   1 * time.Second,
+	}
+
+	var result sql.Result
+	err := retryOnBusy(ctx, retryConfig, func() error {
+		var execErr error
+		result, execErr = s.db.ExecContext(ctx, query, note.ID.String(), accountID.String())
+		return execErr
+	})
 	if err != nil {
 		return fmt.Errorf("failed to delete note: %w", err)
 	}
@@ -206,8 +298,17 @@ func (s *sqliteNoteStore) DeleteNote(ctx context.Context, accountID uuid.UUID, n
 
 func (s *sqliteNoteStore) CountNotes(ctx context.Context, accountID uuid.UUID) (int, error) {
 	query := `SELECT COUNT(*) FROM notes WHERE creator = ?`
+	
+	retryConfig := RetryConfig{
+		MaxRetries: 5,
+		BaseDelay:  10 * time.Millisecond,
+		MaxDelay:   1 * time.Second,
+	}
+	
 	var count int
-	err := s.db.QueryRowContext(ctx, query, accountID.String()).Scan(&count)
+	err := retryOnBusy(ctx, retryConfig, func() error {
+		return s.db.QueryRowContext(ctx, query, accountID.String()).Scan(&count)
+	})
 	if err != nil {
 		return 0, fmt.Errorf("failed to count notes for account: %w", err)
 	}
@@ -216,8 +317,17 @@ func (s *sqliteNoteStore) CountNotes(ctx context.Context, accountID uuid.UUID) (
 
 func (s *sqliteNoteStore) GetTotalNotes(ctx context.Context) (int, error) {
 	query := `SELECT COUNT(*) FROM notes`
+	
+	retryConfig := RetryConfig{
+		MaxRetries: 5,
+		BaseDelay:  10 * time.Millisecond,
+		MaxDelay:   1 * time.Second,
+	}
+	
 	var count int
-	err := s.db.QueryRowContext(ctx, query).Scan(&count)
+	err := retryOnBusy(ctx, retryConfig, func() error {
+		return s.db.QueryRowContext(ctx, query).Scan(&count)
+	})
 	if err != nil {
 		return 0, fmt.Errorf("failed to count notes: %w", err)
 	}
@@ -244,7 +354,11 @@ func NewAccountStore(name string) (AccountStore, error) {
 }
 
 func NewAccountStoreWithConfig(name string, config DatabaseConfig) (AccountStore, error) {
-	db, err := createSQLiteDatabaseWithConfig(name, config)
+	return NewAccountStoreWithPath(name, "", config)
+}
+
+func NewAccountStoreWithPath(name, basePath string, config DatabaseConfig) (AccountStore, error) {
+	db, err := createSQLiteDatabaseWithPath(name, basePath, config)
 	if err != nil {
 		return nil, fmt.Errorf("could not create sqlite db: %w", err)
 	}
@@ -262,7 +376,11 @@ func NewNoteStore(name string) (NoteStore, error) {
 }
 
 func NewNoteStoreWithConfig(name string, config DatabaseConfig) (NoteStore, error) {
-	db, err := createSQLiteDatabaseWithConfig(name, config)
+	return NewNoteStoreWithPath(name, "", config)
+}
+
+func NewNoteStoreWithPath(name, basePath string, config DatabaseConfig) (NoteStore, error) {
+	db, err := createSQLiteDatabaseWithPath(name, basePath, config)
 	if err != nil {
 		return nil, fmt.Errorf("could not create sqlite db: %w", err)
 	}
@@ -305,14 +423,23 @@ func createSQLiteDatabase(name string) (*sql.DB, error) {
 }
 
 func createSQLiteDatabaseWithConfig(name string, config DatabaseConfig) (*sql.DB, error) {
-	wd, err := os.Getwd()
-	if err != nil {
-		return nil, fmt.Errorf("could not get working directory: %w", err)
+	return createSQLiteDatabaseWithPath(name, "", config)
+}
+
+func createSQLiteDatabaseWithPath(name, basePath string, config DatabaseConfig) (*sql.DB, error) {
+	var dir string
+	if basePath != "" {
+		dir = filepath.Join(basePath, ".data")
+	} else {
+		wd, err := os.Getwd()
+		if err != nil {
+			return nil, fmt.Errorf("could not get working directory: %w", err)
+		}
+		dir = filepath.Join(wd, ".data")
 	}
 
-	dir := filepath.Join(wd, ".data")
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		err = os.MkdirAll(dir, 0750)
+		err := os.MkdirAll(dir, 0750)
 		if err != nil {
 			return nil, fmt.Errorf("could not create data dir: %w", err)
 		}
@@ -320,15 +447,66 @@ func createSQLiteDatabaseWithConfig(name string, config DatabaseConfig) (*sql.DB
 
 	file := filepath.Join(dir, fmt.Sprintf("%s.db", name))
 
-	db, err := sql.Open("sqlite", fmt.Sprintf("file:%s?cache=shared", file))
+	// Configure SQLite for multi-process access with WAL mode and timeouts
+	dsn := fmt.Sprintf("file:%s?journal_mode=WAL&busy_timeout=0&synchronous=FULL", file)
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("could not open sqlite db: %w", err)
 	}
 
-	// Configure connection pool
-	db.SetMaxOpenConns(config.MaxOpenConns)
-	db.SetMaxIdleConns(config.MaxIdleConns)
+	// Configure connection pool for multi-process access
+	db.SetMaxOpenConns(1) // Single connection to prevent lock contention
+	db.SetMaxIdleConns(1)
 	db.SetConnMaxLifetime(config.ConnMaxLifetime)
 
 	return db, nil
+}
+
+// RetryConfig holds configuration for retry logic
+type RetryConfig struct {
+	MaxRetries int
+	BaseDelay  time.Duration
+	MaxDelay   time.Duration
+}
+
+// retryOnBusy implements exponential backoff retry logic for SQLite BUSY errors
+func retryOnBusy(ctx context.Context, config RetryConfig, operation func() error) error {
+	var lastErr error
+
+	for attempt := 0; attempt <= config.MaxRetries; attempt++ {
+		if attempt > 0 {
+			delay := time.Duration(float64(config.BaseDelay) * math.Pow(2, float64(attempt-1)))
+			if delay > config.MaxDelay {
+				delay = config.MaxDelay
+			}
+
+			// Add jitter to prevent thundering herd
+			jitter := time.Duration(rand.Float64() * float64(delay) * 0.1)
+			delay = delay + jitter
+
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(delay):
+			}
+		}
+
+		err := operation()
+		if err == nil {
+			return nil
+		}
+
+		lastErr = err
+
+		// Check if this is a SQLite BUSY error
+		if strings.Contains(err.Error(), "database is locked") ||
+			strings.Contains(err.Error(), "SQLITE_BUSY") {
+			continue
+		}
+
+		// Not a BUSY error, don't retry
+		return err
+	}
+
+	return fmt.Errorf("operation failed after %d retries, last error: %w", config.MaxRetries, lastErr)
 }

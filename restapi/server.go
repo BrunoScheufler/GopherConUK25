@@ -18,19 +18,19 @@ import (
 
 type Server struct {
 	accountStore         store.AccountStore
-	noteStore           store.NoteStore
+	noteStore            store.NoteStore
 	deploymentController *proxy.DeploymentController
-	telemetry           *telemetry.Telemetry
-	logger              *slog.Logger
+	telemetry            *telemetry.Telemetry
+	logger               *slog.Logger
 }
 
 func NewServer(accountStore store.AccountStore, noteStore store.NoteStore, deploymentController *proxy.DeploymentController, tel *telemetry.Telemetry) *Server {
 	return &Server{
 		accountStore:         accountStore,
-		noteStore:           noteStore,
+		noteStore:            noteStore,
 		deploymentController: deploymentController,
-		telemetry:           tel,
-		logger:              tel.GetLogger(),
+		telemetry:            tel,
+		logger:               tel.GetLogger(),
 	}
 }
 
@@ -134,7 +134,7 @@ func (s *Server) validateAccount(account store.Account) error {
 	return nil
 }
 
-// validateNote validates note data  
+// validateNote validates note data
 func (s *Server) validateNote(note store.Note) error {
 	if note.Content == "" {
 		return errors.New("note content is required")
@@ -347,6 +347,7 @@ func (s *Server) handleUpdateNote(w http.ResponseWriter, r *http.Request) {
 	note.Creator = accountID
 
 	if err := s.noteStore.UpdateNote(r.Context(), accountID, note); err != nil {
+		s.logger.Error("Failed to update note", "error", err, "accountID", accountID, "noteID", noteID)
 		if errors.Is(err, store.ErrNoteNotFound) {
 			s.writeError(w, http.StatusNotFound, "Note not found")
 			return

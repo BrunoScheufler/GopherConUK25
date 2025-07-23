@@ -20,7 +20,6 @@ import (
 	"github.com/brunoscheufler/gopherconuk25/telemetry"
 )
 
-
 // Config holds all configuration parameters for running the application
 type Config struct {
 	// CLI configuration
@@ -28,11 +27,11 @@ type Config struct {
 	Theme    string
 	Port     string
 	LogLevel string
-	
+
 	// Proxy configuration
 	ProxyMode bool
 	ProxyPort int
-	
+
 	// Load generator configuration
 	EnableLoadGen   bool
 	AccountCount    int
@@ -40,23 +39,22 @@ type Config struct {
 	RequestsPerMin  int
 }
 
-
 func main() {
 	cliMode := flag.Bool("cli", false, "Run in CLI mode with TUI")
 	theme := flag.String("theme", "dark", "Theme for CLI mode (dark or light)")
 	port := flag.String("port", constants.DefaultPort, "Port to run the HTTP server on")
 	logLevel := flag.String("log-level", "", "Log level (DEBUG, INFO, WARN, ERROR). Defaults to DEBUG")
-	
+
 	// Proxy flags
 	proxyMode := flag.Bool("proxy", false, "Run as data proxy")
 	proxyPort := flag.Int("proxy-port", 0, "Port for data proxy (required with --proxy)")
-	
+
 	// Load generator flags
 	enableLoadGen := flag.Bool("gen", false, "Enable load generator")
 	accountCount := flag.Int("concurrency", 5, "Number of accounts for load generator")
 	notesPerAccount := flag.Int("notes-per-account", 3, "Number of notes per account for load generator")
 	requestsPerMin := flag.Int("rpm", 60, "Requests per minute for load generator")
-	
+
 	flag.Parse()
 
 	config := Config{
@@ -121,7 +119,7 @@ type ApplicationComponents struct {
 func initializeStores(tel *telemetry.Telemetry) (store.AccountStore, store.NoteStore, *proxy.DeploymentController, error) {
 	// Create deployment controller with telemetry
 	deploymentController := proxy.NewDeploymentController(tel)
-	
+
 	// Perform initial deployment
 	if err := deploymentController.Deploy(); err != nil {
 		return nil, nil, nil, fmt.Errorf("could not perform initial deployment: %w", err)
@@ -132,13 +130,12 @@ func initializeStores(tel *telemetry.Telemetry) (store.AccountStore, store.NoteS
 
 	accountStore, err := store.NewAccountStore("accounts")
 	if err != nil {
-		deploymentController.Shutdown() // Clean up proxy if account store creation fails
+		deploymentController.Close() // Clean up proxy if account store creation fails
 		return nil, nil, nil, fmt.Errorf("could not create account store: %w", err)
 	}
 
 	return accountStore, noteStore, deploymentController, nil
 }
-
 
 // setupTelemetry creates and starts the telemetry system
 func setupTelemetry(cliMode bool, logLevel string) *telemetry.Telemetry {
@@ -260,7 +257,7 @@ func runDataProxy(port int) error {
 
 func runWithCLI(httpServer *http.Server, accountStore store.AccountStore, noteStore store.NoteStore, deploymentController *proxy.DeploymentController, tel *telemetry.Telemetry, options cli.CLIOptions, simulator *Simulator) error {
 	logger := tel.GetLogger()
-	
+
 	// Start server first, then validate health before starting CLI
 	serverError := make(chan error, 1)
 	go func() {
@@ -276,7 +273,7 @@ func runWithCLI(httpServer *http.Server, accountStore store.AccountStore, noteSt
 		return fmt.Errorf("server failed health check: %w", err)
 	}
 	logger.Info("Server health check passed, starting CLI...")
-	
+
 	// Start load generator if provided
 	if simulator != nil {
 		go func() {
@@ -301,23 +298,23 @@ func runWithCLI(httpServer *http.Server, accountStore store.AccountStore, noteSt
 		time.Sleep(100 * time.Millisecond)
 		tel.SwitchToStderr()
 		logger = tel.GetLogger() // Update logger reference
-		
+
 		// Update simulator's logger reference if it exists
 		if simulator != nil {
 			simulator.UpdateLogger()
 		}
-		
+
 		// CLI exited, shutdown server gracefully
 		logger.Info("CLI exited, initiating graceful shutdown...")
-		
+
 		// Stop load generator first
 		if simulator != nil {
 			logger.Info("Stopping load generator...")
 			simulator.Stop()
 		}
-		
+
 		logger.Info("Shutting down HTTP server...")
-		
+
 		ctx, cancel := context.WithTimeout(context.Background(), constants.GracefulShutdownTimeout)
 		defer cancel()
 
@@ -325,7 +322,7 @@ func runWithCLI(httpServer *http.Server, accountStore store.AccountStore, noteSt
 			logger.Error("Server shutdown failed", "error", shutdownErr)
 			return fmt.Errorf("server shutdown failed: %w", shutdownErr)
 		}
-		
+
 		logger.Info("Application shutdown complete")
 		return err // Return the CLI error (if any)
 	}
@@ -351,7 +348,7 @@ func runHTTPServer(httpServer *http.Server, simulator *Simulator, tel *telemetry
 
 func runServer(httpServer *http.Server, shutdownTrigger <-chan error, simulator *Simulator, tel *telemetry.Telemetry) error {
 	logger := tel.GetLogger()
-	
+
 	// Start HTTP server in background
 	serverError := make(chan error, 1)
 	go func() {
@@ -360,7 +357,7 @@ func runServer(httpServer *http.Server, shutdownTrigger <-chan error, simulator 
 			serverError <- err
 		}
 	}()
-	
+
 	// Start load generator if provided (after server starts)
 	if simulator != nil {
 		go func() {
