@@ -119,21 +119,22 @@ func checkServerHealth(port string) error {
 
 // ApplicationComponents holds the initialized components needed to run the application
 type ApplicationComponents struct {
-	AccountStore store.AccountStore
-	NoteStore    store.NoteStore
-	Telemetry    *telemetry.Telemetry
-	HTTPServer   *http.Server
-	Simulator    *Simulator
+	AccountStore         store.AccountStore
+	NoteStore            store.NoteStore
+	DeploymentController *proxy.DeploymentController
+	Telemetry            *telemetry.Telemetry
+	HTTPServer           *http.Server
+	Simulator            *Simulator
 }
 
 // initializeStores creates and initializes the account and note stores
-func initializeStores() (store.AccountStore, store.NoteStore, error) {
+func initializeStores() (store.AccountStore, store.NoteStore, *proxy.DeploymentController, error) {
 	// Create deployment controller
 	deploymentController := proxy.NewDeploymentController()
 	
 	// Perform initial deployment
 	if err := deploymentController.Deploy(); err != nil {
-		return nil, nil, fmt.Errorf("could not perform initial deployment: %w", err)
+		return nil, nil, nil, fmt.Errorf("could not perform initial deployment: %w", err)
 	}
 
 	// Use deployment controller as note store
@@ -142,10 +143,10 @@ func initializeStores() (store.AccountStore, store.NoteStore, error) {
 	accountStore, err := store.NewAccountStore("accounts")
 	if err != nil {
 		deploymentController.Shutdown() // Clean up proxy if account store creation fails
-		return nil, nil, fmt.Errorf("could not create account store: %w", err)
+		return nil, nil, nil, fmt.Errorf("could not create account store: %w", err)
 	}
 
-	return accountStore, noteStore, nil
+	return accountStore, noteStore, deploymentController, nil
 }
 
 // setupTelemetry creates and starts the telemetry system
@@ -193,7 +194,7 @@ func initializeApplication(config Config) (*ApplicationComponents, error) {
 		return nil, err
 	}
 
-	accountStore, noteStore, err := initializeStores()
+	accountStore, noteStore, deploymentController, err := initializeStores()
 	if err != nil {
 		return nil, err
 	}
@@ -203,11 +204,12 @@ func initializeApplication(config Config) (*ApplicationComponents, error) {
 	simulator := createSimulator(config, tel, port)
 
 	return &ApplicationComponents{
-		AccountStore: accountStore,
-		NoteStore:    noteStore,
-		Telemetry:    tel,
-		HTTPServer:   httpServer,
-		Simulator:    simulator,
+		AccountStore:         accountStore,
+		NoteStore:            noteStore,
+		DeploymentController: deploymentController,
+		Telemetry:            tel,
+		HTTPServer:           httpServer,
+		Simulator:            simulator,
 	}, nil
 }
 
@@ -230,7 +232,7 @@ func Run(config Config) error {
 			Theme: config.Theme,
 		}
 		// Run both HTTP server and CLI concurrently
-		return runWithCLI(components.HTTPServer, components.AccountStore, components.NoteStore, components.Telemetry, options, components.Simulator)
+		return runWithCLI(components.HTTPServer, components.AccountStore, components.NoteStore, components.DeploymentController, components.Telemetry, options, components.Simulator)
 	}
 
 	// Otherwise run the HTTP server only
@@ -262,7 +264,7 @@ func runDataProxy(port int) error {
 	return dataProxy.Run(ctx)
 }
 
-func runWithCLI(httpServer *http.Server, accountStore store.AccountStore, noteStore store.NoteStore, tel *telemetry.Telemetry, options cli.CLIOptions, simulator *Simulator) error {
+func runWithCLI(httpServer *http.Server, accountStore store.AccountStore, noteStore store.NoteStore, deploymentController *proxy.DeploymentController, tel *telemetry.Telemetry, options cli.CLIOptions, simulator *Simulator) error {
 	logger := tel.GetLogger()
 	
 	// Start server first, then validate health before starting CLI
@@ -293,7 +295,7 @@ func runWithCLI(httpServer *http.Server, accountStore store.AccountStore, noteSt
 	// Start CLI in foreground
 	cliError := make(chan error, 1)
 	go func() {
-		cliError <- cli.RunCLI(accountStore, noteStore, tel, options)
+		cliError <- cli.RunCLI(accountStore, noteStore, tel, deploymentController, options)
 	}()
 
 	// Wait for either server error or CLI exit

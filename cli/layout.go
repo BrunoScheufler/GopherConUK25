@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/brunoscheufler/gopherconuk25/proxy"
 	"github.com/brunoscheufler/gopherconuk25/store"
 	"github.com/brunoscheufler/gopherconuk25/telemetry"
 	"github.com/gdamore/tcell/v2"
@@ -13,30 +14,33 @@ import (
 )
 
 type CLIApp struct {
-	app          *tview.Application
-	statsView    *tview.TextView
-	accountsView *tview.TextView
-	logView      *tview.TextView
-	accountStore store.AccountStore
-	noteStore    store.NoteStore
-	telemetry    *telemetry.Telemetry
-	options      CLIOptions
+	app                  *tview.Application
+	statsView            *tview.TextView
+	accountsView         *tview.TextView
+	deploymentView       *tview.TextView
+	logView              *tview.TextView
+	accountStore         store.AccountStore
+	noteStore            store.NoteStore
+	telemetry            *telemetry.Telemetry
+	deploymentController *proxy.DeploymentController
+	options              CLIOptions
 
 	ctx    context.Context
 	cancel context.CancelFunc
 }
 
-func NewCLIApp(accountStore store.AccountStore, noteStore store.NoteStore, tel *telemetry.Telemetry, options CLIOptions) *CLIApp {
+func NewCLIApp(accountStore store.AccountStore, noteStore store.NoteStore, tel *telemetry.Telemetry, deploymentController *proxy.DeploymentController, options CLIOptions) *CLIApp {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &CLIApp{
-		app:          tview.NewApplication(),
-		accountStore: accountStore,
-		noteStore:    noteStore,
-		telemetry:    tel,
-		options:      options,
-		ctx:          ctx,
-		cancel:       cancel,
+		app:                  tview.NewApplication(),
+		accountStore:         accountStore,
+		noteStore:            noteStore,
+		telemetry:            tel,
+		deploymentController: deploymentController,
+		options:              options,
+		ctx:                  ctx,
+		cancel:               cancel,
 	}
 }
 
@@ -54,7 +58,7 @@ func (c *CLIApp) Setup() {
 	c.statsView.SetTextAlign(tview.AlignLeft)
 	ApplyThemeToTextView(c.statsView, theme)
 
-	// Create accounts view (top right pane)
+	// Create accounts view (top middle pane)
 	c.accountsView = tview.NewTextView()
 	c.accountsView.SetBorder(true)
 	c.accountsView.SetTitle(" Top Accounts ")
@@ -62,6 +66,15 @@ func (c *CLIApp) Setup() {
 	c.accountsView.SetDynamicColors(true)
 	c.accountsView.SetTextAlign(tview.AlignLeft)
 	ApplyThemeToTextView(c.accountsView, theme)
+
+	// Create deployment view (top right pane)
+	c.deploymentView = tview.NewTextView()
+	c.deploymentView.SetBorder(true)
+	c.deploymentView.SetTitle(" Deployments [Press 'd' to deploy] ")
+	c.deploymentView.SetTitleAlign(tview.AlignLeft)
+	c.deploymentView.SetDynamicColors(true)
+	c.deploymentView.SetTextAlign(tview.AlignLeft)
+	ApplyThemeToTextView(c.deploymentView, theme)
 
 	// Create log view (bottom pane)
 	c.logView = tview.NewTextView()
@@ -75,11 +88,12 @@ func (c *CLIApp) Setup() {
 	})
 	ApplyThemeToTextView(c.logView, theme)
 
-	// Create top horizontal layout for stats and accounts
+	// Create top horizontal layout for stats, accounts, and deployments
 	topFlex := tview.NewFlex()
 	topFlex.SetDirection(tview.FlexColumn)
-	topFlex.AddItem(c.statsView, 0, 1, false)    // 50% of width
-	topFlex.AddItem(c.accountsView, 0, 1, false) // 50% of width
+	topFlex.AddItem(c.statsView, 0, 1, false)      // 33% of width
+	topFlex.AddItem(c.accountsView, 0, 1, false)   // 33% of width
+	topFlex.AddItem(c.deploymentView, 0, 1, false) // 33% of width
 
 	// Create main layout with 2:1 ratio (2/3 top, 1/3 bottom)
 	mainFlex := tview.NewFlex()
@@ -100,6 +114,19 @@ func (c *CLIApp) Setup() {
 			c.Stop()
 			return nil
 		}
+		
+		// Handle character keys
+		switch event.Rune() {
+		case 'd', 'D':
+			// Trigger deployment in goroutine
+			go func() {
+				if c.deploymentController != nil {
+					c.deploymentController.Deploy()
+				}
+			}()
+			return nil
+		}
+		
 		return event
 	})
 
@@ -119,6 +146,9 @@ func (c *CLIApp) Start() error {
 	
 	// Start accounts update loop
 	go c.accountsUpdateLoop()
+
+	// Start deployment update loop
+	go c.deploymentUpdateLoop()
 
 	// Load existing logs after app starts
 	go func() {
@@ -276,5 +306,80 @@ func (c *CLIApp) formatTopAccounts(accounts []store.AccountStats, theme Theme) s
 			headerColor, len(accounts)))
 	}
 	
+	return result.String()
+}
+
+func (c *CLIApp) deploymentUpdateLoop() {
+	// Update deployments every second
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-c.ctx.Done():
+			return
+		case <-ticker.C:
+			c.updateDeployments()
+		}
+	}
+}
+
+func (c *CLIApp) updateDeployments() {
+	if c.deploymentController == nil {
+		return
+	}
+
+	theme := GetTheme(c.options.Theme)
+	c.app.QueueUpdateDraw(func() {
+		c.deploymentView.Clear()
+		text := c.formatDeployments(theme)
+		c.deploymentView.SetText(text)
+	})
+}
+
+func (c *CLIApp) formatDeployments(theme Theme) string {
+	var result strings.Builder
+	
+	// Choose colors based on theme
+	var headerColor, statusColor, labelColor, valueColor string
+	if theme.Name == "light" {
+		headerColor = "[navy]"
+		statusColor = "[teal]"
+		labelColor = "[black]"
+		valueColor = "[darkgreen]"
+	} else {
+		headerColor = "[yellow]"
+		statusColor = "[aqua]"
+		labelColor = "[white]"
+		valueColor = "[green]"
+	}
+
+	// Deployment status
+	status := c.deploymentController.Status()
+	result.WriteString(fmt.Sprintf("%sStatus: %s%s[-]\n\n", 
+		headerColor, statusColor, status.String()))
+
+	// Current deployment
+	current := c.deploymentController.Current()
+	if current != nil {
+		result.WriteString(fmt.Sprintf("%sCurrent (v%d)[-]\n", headerColor, current.ID))
+		result.WriteString(fmt.Sprintf("%sLaunched: %s%s[-]\n", 
+			labelColor, valueColor, current.LaunchedAt.Format("15:04:05")))
+	} else {
+		result.WriteString(fmt.Sprintf("%sCurrent: %sNone[-]\n", headerColor, labelColor))
+	}
+
+	result.WriteString("\n")
+
+	// Previous deployment
+	previous := c.deploymentController.Previous()
+	if previous != nil {
+		result.WriteString(fmt.Sprintf("%sPrevious (v%d)[-]\n", headerColor, previous.ID))
+		result.WriteString(fmt.Sprintf("%sLaunched: %s%s[-]\n", 
+			labelColor, valueColor, previous.LaunchedAt.Format("15:04:05")))
+	} else {
+		result.WriteString(fmt.Sprintf("%sPrevious: %sNone[-]\n", headerColor, labelColor))
+	}
+
 	return result.String()
 }
