@@ -128,18 +128,20 @@ type ApplicationComponents struct {
 
 // initializeStores creates and initializes the account and note stores
 func initializeStores() (store.AccountStore, store.NoteStore, error) {
-	// Launch data proxy process for note store
-	dataProxyProcess, err := proxy.LaunchDataProxy(1)
-	if err != nil {
-		return nil, nil, fmt.Errorf("could not launch data proxy: %w", err)
+	// Create deployment controller
+	deploymentController := proxy.NewDeploymentController()
+	
+	// Perform initial deployment
+	if err := deploymentController.Deploy(); err != nil {
+		return nil, nil, fmt.Errorf("could not perform initial deployment: %w", err)
 	}
 
-	// Use proxy client as note store
-	noteStore := dataProxyProcess.ProxyClient
+	// Use deployment controller as note store
+	noteStore := deploymentController
 
 	accountStore, err := store.NewAccountStore("accounts")
 	if err != nil {
-		dataProxyProcess.Shutdown() // Clean up proxy if account store creation fails
+		deploymentController.Shutdown() // Clean up proxy if account store creation fails
 		return nil, nil, fmt.Errorf("could not create account store: %w", err)
 	}
 
