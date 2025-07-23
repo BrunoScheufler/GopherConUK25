@@ -22,14 +22,8 @@ type sqliteAccountStore struct {
 func (s *sqliteAccountStore) ListAccounts(ctx context.Context) ([]Account, error) {
 	query := `SELECT id, name FROM accounts`
 	
-	retryConfig := RetryConfig{
-		MaxRetries: 5,
-		BaseDelay:  10 * time.Millisecond,
-		MaxDelay:   1 * time.Second,
-	}
-	
 	var rows *sql.Rows
-	err := retryOnBusy(ctx, retryConfig, func() error {
+	err := retryOnBusy(ctx, defaultRetryConfig, func() error {
 		var queryErr error
 		rows, queryErr = s.db.QueryContext(ctx, query)
 		return queryErr
@@ -66,13 +60,7 @@ func (s *sqliteAccountStore) ListAccounts(ctx context.Context) ([]Account, error
 func (s *sqliteAccountStore) CreateAccount(ctx context.Context, a Account) error {
 	query := `INSERT INTO accounts (id, name) VALUES (?, ?)`
 
-	retryConfig := RetryConfig{
-		MaxRetries: 5,
-		BaseDelay:  10 * time.Millisecond,
-		MaxDelay:   1 * time.Second,
-	}
-
-	err := retryOnBusy(ctx, retryConfig, func() error {
+	err := retryOnBusy(ctx, defaultRetryConfig, func() error {
 		_, execErr := s.db.ExecContext(ctx, query, a.ID.String(), a.Name)
 		return execErr
 	})
@@ -85,14 +73,8 @@ func (s *sqliteAccountStore) CreateAccount(ctx context.Context, a Account) error
 func (s *sqliteAccountStore) UpdateAccount(ctx context.Context, a Account) error {
 	query := `UPDATE accounts SET name = ? WHERE id = ?`
 
-	retryConfig := RetryConfig{
-		MaxRetries: 5,
-		BaseDelay:  10 * time.Millisecond,
-		MaxDelay:   1 * time.Second,
-	}
-
 	var result sql.Result
-	err := retryOnBusy(ctx, retryConfig, func() error {
+	err := retryOnBusy(ctx, defaultRetryConfig, func() error {
 		var execErr error
 		result, execErr = s.db.ExecContext(ctx, query, a.Name, a.ID.String())
 		return execErr
@@ -125,14 +107,8 @@ type sqliteNoteStore struct {
 func (s *sqliteNoteStore) ListNotes(ctx context.Context, accountID uuid.UUID) ([]Note, error) {
 	query := `SELECT id, creator, created_at, updated_at, content FROM notes WHERE creator = ?`
 	
-	retryConfig := RetryConfig{
-		MaxRetries: 5,
-		BaseDelay:  10 * time.Millisecond,
-		MaxDelay:   1 * time.Second,
-	}
-	
 	var rows *sql.Rows
-	err := retryOnBusy(ctx, retryConfig, func() error {
+	err := retryOnBusy(ctx, defaultRetryConfig, func() error {
 		var queryErr error
 		rows, queryErr = s.db.QueryContext(ctx, query, accountID.String())
 		return queryErr
@@ -178,17 +154,11 @@ func (s *sqliteNoteStore) ListNotes(ctx context.Context, accountID uuid.UUID) ([
 func (s *sqliteNoteStore) GetNote(ctx context.Context, accountID, noteID uuid.UUID) (*Note, error) {
 	query := `SELECT id, creator, created_at, updated_at, content FROM notes WHERE id = ? AND creator = ?`
 	
-	retryConfig := RetryConfig{
-		MaxRetries: 5,
-		BaseDelay:  10 * time.Millisecond,
-		MaxDelay:   1 * time.Second,
-	}
-	
 	var note Note
 	var idStr, creatorStr string
 	var createdAtMillis, updatedAtMillis int64
 	
-	err := retryOnBusy(ctx, retryConfig, func() error {
+	err := retryOnBusy(ctx, defaultRetryConfig, func() error {
 		row := s.db.QueryRowContext(ctx, query, noteID.String(), accountID.String())
 		return row.Scan(&idStr, &creatorStr, &createdAtMillis, &updatedAtMillis, &note.Content)
 	})
@@ -218,13 +188,7 @@ func (s *sqliteNoteStore) GetNote(ctx context.Context, accountID, noteID uuid.UU
 func (s *sqliteNoteStore) CreateNote(ctx context.Context, accountID uuid.UUID, note Note) error {
 	query := `INSERT INTO notes (id, creator, created_at, updated_at, content) VALUES (?, ?, ?, ?, ?)`
 
-	retryConfig := RetryConfig{
-		MaxRetries: 5,
-		BaseDelay:  10 * time.Millisecond,
-		MaxDelay:   1 * time.Second,
-	}
-
-	err := retryOnBusy(ctx, retryConfig, func() error {
+	err := retryOnBusy(ctx, defaultRetryConfig, func() error {
 		_, execErr := s.db.ExecContext(ctx, query, note.ID.String(), accountID.String(), note.CreatedAt.UnixMilli(), note.UpdatedAt.UnixMilli(), note.Content)
 		return execErr
 	})
@@ -237,14 +201,8 @@ func (s *sqliteNoteStore) CreateNote(ctx context.Context, accountID uuid.UUID, n
 func (s *sqliteNoteStore) UpdateNote(ctx context.Context, accountID uuid.UUID, note Note) error {
 	query := `UPDATE notes SET content = ?, updated_at = ? WHERE id = ? AND creator = ?`
 
-	retryConfig := RetryConfig{
-		MaxRetries: 5,
-		BaseDelay:  10 * time.Millisecond,
-		MaxDelay:   1 * time.Second,
-	}
-
 	var result sql.Result
-	err := retryOnBusy(ctx, retryConfig, func() error {
+	err := retryOnBusy(ctx, defaultRetryConfig, func() error {
 		var execErr error
 		result, execErr = s.db.ExecContext(ctx, query, note.Content, note.UpdatedAt.UnixMilli(), note.ID.String(), accountID.String())
 		return execErr
@@ -268,14 +226,8 @@ func (s *sqliteNoteStore) UpdateNote(ctx context.Context, accountID uuid.UUID, n
 func (s *sqliteNoteStore) DeleteNote(ctx context.Context, accountID uuid.UUID, note Note) error {
 	query := `DELETE FROM notes WHERE id = ? AND creator = ?`
 
-	retryConfig := RetryConfig{
-		MaxRetries: 5,
-		BaseDelay:  10 * time.Millisecond,
-		MaxDelay:   1 * time.Second,
-	}
-
 	var result sql.Result
-	err := retryOnBusy(ctx, retryConfig, func() error {
+	err := retryOnBusy(ctx, defaultRetryConfig, func() error {
 		var execErr error
 		result, execErr = s.db.ExecContext(ctx, query, note.ID.String(), accountID.String())
 		return execErr
@@ -299,14 +251,8 @@ func (s *sqliteNoteStore) DeleteNote(ctx context.Context, accountID uuid.UUID, n
 func (s *sqliteNoteStore) CountNotes(ctx context.Context, accountID uuid.UUID) (int, error) {
 	query := `SELECT COUNT(*) FROM notes WHERE creator = ?`
 	
-	retryConfig := RetryConfig{
-		MaxRetries: 5,
-		BaseDelay:  10 * time.Millisecond,
-		MaxDelay:   1 * time.Second,
-	}
-	
 	var count int
-	err := retryOnBusy(ctx, retryConfig, func() error {
+	err := retryOnBusy(ctx, defaultRetryConfig, func() error {
 		return s.db.QueryRowContext(ctx, query, accountID.String()).Scan(&count)
 	})
 	if err != nil {
@@ -318,14 +264,8 @@ func (s *sqliteNoteStore) CountNotes(ctx context.Context, accountID uuid.UUID) (
 func (s *sqliteNoteStore) GetTotalNotes(ctx context.Context) (int, error) {
 	query := `SELECT COUNT(*) FROM notes`
 	
-	retryConfig := RetryConfig{
-		MaxRetries: 5,
-		BaseDelay:  10 * time.Millisecond,
-		MaxDelay:   1 * time.Second,
-	}
-	
 	var count int
-	err := retryOnBusy(ctx, retryConfig, func() error {
+	err := retryOnBusy(ctx, defaultRetryConfig, func() error {
 		return s.db.QueryRowContext(ctx, query).Scan(&count)
 	})
 	if err != nil {
@@ -467,6 +407,13 @@ type RetryConfig struct {
 	MaxRetries int
 	BaseDelay  time.Duration
 	MaxDelay   time.Duration
+}
+
+// defaultRetryConfig provides the standard retry configuration for all SQLite operations
+var defaultRetryConfig = RetryConfig{
+	MaxRetries: 5,
+	BaseDelay:  10 * time.Millisecond,
+	MaxDelay:   1 * time.Second,
 }
 
 // retryOnBusy implements exponential backoff retry logic for SQLite BUSY errors
