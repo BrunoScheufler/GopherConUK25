@@ -10,30 +10,36 @@ import (
 	"time"
 
 	"github.com/brunoscheufler/gopherconuk25/constants"
+	"github.com/brunoscheufler/gopherconuk25/proxy"
 	"github.com/brunoscheufler/gopherconuk25/store"
 	"github.com/brunoscheufler/gopherconuk25/telemetry"
 	"github.com/google/uuid"
 )
 
 type Server struct {
-	accountStore store.AccountStore
-	noteStore    store.NoteStore
-	telemetry    *telemetry.Telemetry
-	logger       *slog.Logger
+	accountStore         store.AccountStore
+	noteStore           store.NoteStore
+	deploymentController *proxy.DeploymentController
+	telemetry           *telemetry.Telemetry
+	logger              *slog.Logger
 }
 
-func NewServer(accountStore store.AccountStore, noteStore store.NoteStore, tel *telemetry.Telemetry) *Server {
+func NewServer(accountStore store.AccountStore, noteStore store.NoteStore, deploymentController *proxy.DeploymentController, tel *telemetry.Telemetry) *Server {
 	return &Server{
-		accountStore: accountStore,
-		noteStore:    noteStore,
-		telemetry:    tel,
-		logger:       tel.GetLogger(),
+		accountStore:         accountStore,
+		noteStore:           noteStore,
+		deploymentController: deploymentController,
+		telemetry:           tel,
+		logger:              tel.GetLogger(),
 	}
 }
 
 func (s *Server) SetupRoutes(mux *http.ServeMux) {
 	// Health check endpoint
 	mux.HandleFunc("GET /healthz", s.handleHealthCheck)
+
+	// Deployment management
+	mux.HandleFunc("POST /deploy", s.handleDeploy)
 
 	// Account management
 	mux.HandleFunc("GET /accounts", s.handleListAccounts)
@@ -82,6 +88,22 @@ func (s *Server) handleHealthCheck(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`{"status":"ok","timestamp":"` + time.Now().UTC().Format(time.RFC3339) + `"}`))
+}
+
+func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
+	if s.deploymentController == nil {
+		s.writeError(w, http.StatusServiceUnavailable, "Deployment controller not available")
+		return
+	}
+
+	if err := s.deploymentController.Deploy(); err != nil {
+		s.writeError(w, http.StatusInternalServerError, "Deployment failed: "+err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"deployment started","timestamp":"` + time.Now().UTC().Format(time.RFC3339) + `"}`))
 }
 
 func (s *Server) writeError(w http.ResponseWriter, statusCode int, message string) {

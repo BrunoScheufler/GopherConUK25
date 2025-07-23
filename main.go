@@ -191,7 +191,7 @@ func initializeApplication(config Config) (*ApplicationComponents, error) {
 	}
 
 	deploymentController.StartInstrument()
-	httpServer := createHTTPServer(accountStore, noteStore, tel, port)
+	httpServer := createHTTPServer(accountStore, noteStore, deploymentController, tel, port)
 	simulator := createSimulator(config, tel, port)
 
 	return &ApplicationComponents{
@@ -387,8 +387,8 @@ func runServer(httpServer *http.Server, shutdownTrigger <-chan error, simulator 
 	}
 }
 
-func createHTTPServer(accountStore store.AccountStore, noteStore store.NoteStore, tel *telemetry.Telemetry, port string) *http.Server {
-	server := restapi.NewServer(accountStore, noteStore, tel)
+func createHTTPServer(accountStore store.AccountStore, noteStore store.NoteStore, deploymentController *proxy.DeploymentController, tel *telemetry.Telemetry, port string) *http.Server {
+	server := restapi.NewServer(accountStore, noteStore, deploymentController, tel)
 	mux := http.NewServeMux()
 	server.SetupRoutes(mux)
 
