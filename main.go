@@ -24,9 +24,10 @@ import (
 // Config holds all configuration parameters for running the application
 type Config struct {
 	// CLI configuration
-	CLIMode bool
-	Theme   string
-	Port    string
+	CLIMode  bool
+	Theme    string
+	Port     string
+	LogLevel string
 	
 	// Proxy configuration
 	ProxyMode bool
@@ -44,6 +45,7 @@ func main() {
 	cliMode := flag.Bool("cli", false, "Run in CLI mode with TUI")
 	theme := flag.String("theme", "dark", "Theme for CLI mode (dark or light)")
 	port := flag.String("port", constants.DefaultPort, "Port to run the HTTP server on")
+	logLevel := flag.String("log-level", "", "Log level (DEBUG, INFO, WARN, ERROR). Defaults to DEBUG")
 	
 	// Proxy flags
 	proxyMode := flag.Bool("proxy", false, "Run as data proxy")
@@ -61,6 +63,7 @@ func main() {
 		CLIMode:         *cliMode,
 		Theme:           *theme,
 		Port:            *port,
+		LogLevel:        *logLevel,
 		ProxyMode:       *proxyMode,
 		ProxyPort:       *proxyPort,
 		EnableLoadGen:   *enableLoadGen,
@@ -138,8 +141,8 @@ func initializeStores(tel *telemetry.Telemetry) (store.AccountStore, store.NoteS
 
 
 // setupTelemetry creates and starts the telemetry system
-func setupTelemetry(cliMode bool) *telemetry.Telemetry {
-	tel := telemetry.New(cliMode)
+func setupTelemetry(cliMode bool, logLevel string) *telemetry.Telemetry {
+	tel := telemetry.New(cliMode, logLevel)
 	tel.SetupGlobalLogger()
 	tel.Start()
 	return tel
@@ -183,7 +186,7 @@ func initializeApplication(config Config) (*ApplicationComponents, error) {
 	}
 
 	// Create telemetry first so it can be passed to all components
-	tel := setupTelemetry(config.CLIMode)
+	tel := setupTelemetry(config.CLIMode, config.LogLevel)
 
 	accountStore, noteStore, deploymentController, err := initializeStores(tel)
 	if err != nil {
