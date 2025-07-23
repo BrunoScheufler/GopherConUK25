@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/brunoscheufler/gopherconuk25/constants"
@@ -97,6 +98,31 @@ func (s *Server) writeJSON(w http.ResponseWriter, statusCode int, data interface
 	}
 }
 
+// validateAccount validates account data
+func (s *Server) validateAccount(account store.Account) error {
+	if account.Name == "" {
+		return errors.New("account name is required")
+	}
+	if len(account.Name) > 100 {
+		return errors.New("account name too long (max 100 characters)")
+	}
+	if strings.TrimSpace(account.Name) == "" {
+		return errors.New("account name cannot be only whitespace")
+	}
+	return nil
+}
+
+// validateNote validates note data  
+func (s *Server) validateNote(note store.Note) error {
+	if note.Content == "" {
+		return errors.New("note content is required")
+	}
+	if len(note.Content) > 10000 {
+		return errors.New("note content too long (max 10000 characters)")
+	}
+	return nil
+}
+
 // parseAccountID parses an account ID string and handles error response internally
 func (s *Server) parseAccountID(w http.ResponseWriter, idStr string) (uuid.UUID, bool) {
 	accountID, err := uuid.Parse(idStr)
@@ -134,6 +160,12 @@ func (s *Server) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate account data
+	if err := s.validateAccount(account); err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	if account.ID == (uuid.UUID{}) {
 		account.ID = uuid.New()
 	}
@@ -157,6 +189,12 @@ func (s *Server) handleUpdateAccount(w http.ResponseWriter, r *http.Request) {
 	var account store.Account
 	if err := json.NewDecoder(r.Body).Decode(&account); err != nil {
 		s.writeError(w, http.StatusBadRequest, "Invalid JSON")
+		return
+	}
+
+	// Validate account data
+	if err := s.validateAccount(account); err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -233,6 +271,12 @@ func (s *Server) handleCreateNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate note data
+	if err := s.validateNote(note); err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	if note.ID == (uuid.UUID{}) {
 		note.ID = uuid.New()
 	}
@@ -268,6 +312,12 @@ func (s *Server) handleUpdateNote(w http.ResponseWriter, r *http.Request) {
 	var note store.Note
 	if err := json.NewDecoder(r.Body).Decode(&note); err != nil {
 		s.writeError(w, http.StatusBadRequest, "Invalid JSON")
+		return
+	}
+
+	// Validate note data
+	if err := s.validateNote(note); err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 

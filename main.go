@@ -167,7 +167,7 @@ func createSimulator(config Config, tel *telemetry.Telemetry, port string) *Simu
 // preparePort ensures the port has the correct format and checks availability
 func preparePort(port string) (string, error) {
 	// Ensure port has colon prefix
-	if port[0] != ':' {
+	if len(port) == 0 || port[0] != ':' {
 		port = ":" + port
 	}
 
