@@ -142,6 +142,13 @@ func (dc *DeploymentController) Deploy() error {
 		newDataProxyProcess.ProxyClient.SetStatsCollector(dc.telemetry.StatsCollector)
 	}
 
+	// Wait for new proxy to be ready before making it current
+	if err := dc.waitForProxyReady(newDataProxyProcess); err != nil {
+		newDataProxyProcess.Shutdown()
+		dc.setStatus(StatusReady)
+		return fmt.Errorf("new proxy failed readiness check: %w", err)
+	}
+
 	// Set new proxy as current
 	dc.mu.Lock()
 	dc.current = newDataProxyProcess
@@ -299,6 +306,33 @@ func (dc *DeploymentController) SetTelemetry(tel *telemetry.Telemetry) {
 	}
 }
 
+
+// waitForProxyReady waits for a proxy to be ready using the Ready RPC method
+func (dc *DeploymentController) waitForProxyReady(proxy *DataProxyProcess) error {
+	if proxy == nil {
+		return fmt.Errorf("proxy is nil")
+	}
+
+	// Send up to 10 ready requests with 1s delay as per DATA_PROXY.md
+	maxAttempts := 10
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		
+		if err := proxy.ProxyClient.Ready(ctx); err == nil {
+			cancel()
+			return nil
+		}
+		
+		cancel()
+		
+		// Don't wait after the last attempt
+		if attempt < maxAttempts-1 {
+			time.Sleep(1 * time.Second)
+		}
+	}
+
+	return fmt.Errorf("proxy failed readiness check after %d attempts", maxAttempts)
+}
 
 // StartInstrument begins collecting stats from proxy servers every 2 seconds
 func (dc *DeploymentController) StartInstrument() {
