@@ -39,6 +39,14 @@ type Config struct {
 	RequestsPerMin  int
 }
 
+// AppConfig groups common application dependencies to reduce parameter lists
+type AppConfig struct {
+	AccountStore         store.AccountStore
+	NoteStore            store.NoteStore
+	DeploymentController *proxy.DeploymentController
+	Telemetry            *telemetry.Telemetry
+}
+
 func main() {
 	cliMode := flag.Bool("cli", false, "Run in CLI mode with TUI")
 	theme := flag.String("theme", "dark", "Theme for CLI mode (dark or light)")
@@ -191,7 +199,15 @@ func initializeApplication(config Config) (*ApplicationComponents, error) {
 	}
 
 	deploymentController.StartInstrument()
-	httpServer := createHTTPServer(accountStore, noteStore, deploymentController, tel, port)
+	
+	appConfig := &AppConfig{
+		AccountStore:         accountStore,
+		NoteStore:            noteStore,
+		DeploymentController: deploymentController,
+		Telemetry:            tel,
+	}
+	
+	httpServer := createHTTPServer(appConfig, port)
 	simulator := createSimulator(config, tel, port)
 
 	return &ApplicationComponents{
@@ -223,7 +239,13 @@ func Run(config Config) error {
 			Theme: config.Theme,
 		}
 		// Run both HTTP server and CLI concurrently
-		return runWithCLI(components.HTTPServer, components.AccountStore, components.NoteStore, components.DeploymentController, components.Telemetry, options, components.Simulator)
+		appConfig := &AppConfig{
+			AccountStore:         components.AccountStore,
+			NoteStore:            components.NoteStore,
+			DeploymentController: components.DeploymentController,
+			Telemetry:            components.Telemetry,
+		}
+		return runWithCLI(components.HTTPServer, appConfig, options, components.Simulator)
 	}
 
 	// Otherwise run the HTTP server only
@@ -255,8 +277,8 @@ func runDataProxy(port int) error {
 	return dataProxy.Run(ctx)
 }
 
-func runWithCLI(httpServer *http.Server, accountStore store.AccountStore, noteStore store.NoteStore, deploymentController *proxy.DeploymentController, tel *telemetry.Telemetry, options cli.CLIOptions, simulator *Simulator) error {
-	logger := tel.GetLogger()
+func runWithCLI(httpServer *http.Server, appConfig *AppConfig, options cli.CLIOptions, simulator *Simulator) error {
+	logger := appConfig.Telemetry.GetLogger()
 
 	// Start server first, then validate health before starting CLI
 	serverError := make(chan error, 1)
@@ -286,7 +308,7 @@ func runWithCLI(httpServer *http.Server, accountStore store.AccountStore, noteSt
 	// Start CLI in foreground
 	cliError := make(chan error, 1)
 	go func() {
-		cliError <- cli.RunCLI(accountStore, noteStore, tel, deploymentController, options)
+		cliError <- cli.RunCLI(appConfig.AccountStore, appConfig.NoteStore, appConfig.Telemetry, appConfig.DeploymentController, options)
 	}()
 
 	// Wait for either server error or CLI exit
@@ -296,8 +318,8 @@ func runWithCLI(httpServer *http.Server, accountStore store.AccountStore, noteSt
 	case err := <-cliError:
 		// CLI exited, give it a moment to fully close, then switch logging to stderr
 		time.Sleep(100 * time.Millisecond)
-		tel.SwitchToStderr()
-		logger = tel.GetLogger() // Update logger reference
+		appConfig.Telemetry.SwitchToStderr()
+		logger = appConfig.Telemetry.GetLogger() // Update logger reference
 
 		// Update simulator's logger reference if it exists
 		if simulator != nil {
@@ -387,8 +409,13 @@ func runServer(httpServer *http.Server, shutdownTrigger <-chan error, simulator 
 	}
 }
 
-func createHTTPServer(accountStore store.AccountStore, noteStore store.NoteStore, deploymentController *proxy.DeploymentController, tel *telemetry.Telemetry, port string) *http.Server {
-	server := restapi.NewServer(accountStore, noteStore, deploymentController, tel)
+func createHTTPServer(appConfig *AppConfig, port string) *http.Server {
+	server := restapi.NewServerFromConfig(&restapi.AppConfig{
+		AccountStore:         appConfig.AccountStore,
+		NoteStore:            appConfig.NoteStore,
+		DeploymentController: appConfig.DeploymentController,
+		Telemetry:            appConfig.Telemetry,
+	})
 	mux := http.NewServeMux()
 	server.SetupRoutes(mux)
 

@@ -31,15 +31,15 @@ type CLIApp struct {
 	cancel context.CancelFunc
 }
 
-func NewCLIApp(accountStore store.AccountStore, noteStore store.NoteStore, tel *telemetry.Telemetry, deploymentController *proxy.DeploymentController, options CLIOptions) *CLIApp {
+func NewCLIApp(appConfig *AppConfig, options CLIOptions) *CLIApp {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &CLIApp{
 		app:                  tview.NewApplication(),
-		accountStore:         accountStore,
-		noteStore:            noteStore,
-		telemetry:            tel,
-		deploymentController: deploymentController,
+		accountStore:         appConfig.AccountStore,
+		noteStore:            appConfig.NoteStore,
+		telemetry:            appConfig.Telemetry,
+		deploymentController: appConfig.DeploymentController,
 		options:              options,
 		ctx:                  ctx,
 		cancel:               cancel,
@@ -232,7 +232,13 @@ func (c *CLIApp) updateStats() {
 	theme := GetTheme(c.options.Theme)
 	c.app.QueueUpdateDraw(func() {
 		c.statsView.Clear()
-		text := FormatStatsWithTheme(stats, theme, c.accountStore, c.noteStore, c.ctx)
+		appConfig := &AppConfig{
+			AccountStore:         c.accountStore,
+			NoteStore:            c.noteStore,
+			DeploymentController: c.deploymentController,
+			Telemetry:            c.telemetry,
+		}
+		text := FormatStatsWithTheme(stats, theme, appConfig, c.ctx)
 		c.statsView.SetText(text)
 	})
 }

@@ -24,6 +24,14 @@ type Server struct {
 	logger               *slog.Logger
 }
 
+// AppConfig groups common application dependencies to reduce parameter lists
+type AppConfig struct {
+	AccountStore         store.AccountStore
+	NoteStore            store.NoteStore
+	DeploymentController *proxy.DeploymentController
+	Telemetry            *telemetry.Telemetry
+}
+
 func NewServer(accountStore store.AccountStore, noteStore store.NoteStore, deploymentController *proxy.DeploymentController, tel *telemetry.Telemetry) *Server {
 	return &Server{
 		accountStore:         accountStore,
@@ -31,6 +39,16 @@ func NewServer(accountStore store.AccountStore, noteStore store.NoteStore, deplo
 		deploymentController: deploymentController,
 		telemetry:            tel,
 		logger:               tel.GetLogger(),
+	}
+}
+
+func NewServerFromConfig(appConfig *AppConfig) *Server {
+	return &Server{
+		accountStore:         appConfig.AccountStore,
+		noteStore:            appConfig.NoteStore,
+		deploymentController: appConfig.DeploymentController,
+		telemetry:            appConfig.Telemetry,
+		logger:               appConfig.Telemetry.GetLogger(),
 	}
 }
 

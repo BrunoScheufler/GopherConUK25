@@ -131,7 +131,7 @@ func getStoreCounts(ctx context.Context, accountStore store.AccountStore, noteSt
 	return accountCount, noteCount
 }
 
-func FormatStatsWithTheme(stats *telemetry.Stats, theme Theme, accountStore store.AccountStore, noteStore store.NoteStore, ctx context.Context) string {
+func FormatStatsWithTheme(stats *telemetry.Stats, theme Theme, appConfig *AppConfig, ctx context.Context) string {
 	var labelColor, valueColor, secondaryColor string
 
 	if theme.Name == "light" {
@@ -145,7 +145,7 @@ func FormatStatsWithTheme(stats *telemetry.Stats, theme Theme, accountStore stor
 	}
 
 	// Get live counts from stores
-	accountCount, noteCount := getStoreCounts(ctx, accountStore, noteStore)
+	accountCount, noteCount := getStoreCounts(ctx, appConfig.AccountStore, appConfig.NoteStore)
 
 	data := StatsData{
 		AccountCount:   accountCount,
