@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/brunoscheufler/gopherconuk25/store"
+	"github.com/brunoscheufler/gopherconuk25/telemetry"
 )
 
 // DeploymentStatus represents the current deployment state
@@ -39,17 +40,19 @@ func (s DeploymentStatus) String() string {
 
 // DeploymentController manages rolling releases of data proxy processes
 type DeploymentController struct {
-	mu       sync.RWMutex
-	current  *DataProxyProcess
-	previous *DataProxyProcess
-	status   DeploymentStatus
-	deployMu sync.Mutex // Separate mutex for deploy operations
+	mu         sync.RWMutex
+	current    *DataProxyProcess
+	previous   *DataProxyProcess
+	status     DeploymentStatus
+	deployMu   sync.Mutex // Separate mutex for deploy operations
+	telemetry  *telemetry.Telemetry
 }
 
 // NewDeploymentController creates a new deployment controller
-func NewDeploymentController() *DeploymentController {
+func NewDeploymentController(tel *telemetry.Telemetry) *DeploymentController {
 	return &DeploymentController{
-		status: StatusInitial,
+		status:    StatusInitial,
+		telemetry: tel,
 	}
 }
 
@@ -103,6 +106,11 @@ func (dc *DeploymentController) Deploy() error {
 			return fmt.Errorf("failed to launch initial data proxy: %w", err)
 		}
 
+		// Set stats collector if telemetry is available
+		if dc.telemetry != nil {
+			dataProxyProcess.ProxyClient.SetStatsCollector(dc.telemetry.StatsCollector)
+		}
+
 		dc.mu.Lock()
 		dc.current = dataProxyProcess
 		dc.mu.Unlock()
@@ -126,6 +134,11 @@ func (dc *DeploymentController) Deploy() error {
 	if err != nil {
 		dc.setStatus(StatusReady)
 		return fmt.Errorf("failed to launch new data proxy: %w", err)
+	}
+
+	// Set stats collector if telemetry is available
+	if dc.telemetry != nil {
+		newDataProxyProcess.ProxyClient.SetStatsCollector(dc.telemetry.StatsCollector)
 	}
 
 	// Set new proxy as current
@@ -265,4 +278,22 @@ func (dc *DeploymentController) selectProxy() *DataProxyProcess {
 		return dc.current
 	}
 	return dc.previous
+}
+
+// SetTelemetry sets the telemetry instance and updates existing proxy clients
+func (dc *DeploymentController) SetTelemetry(tel *telemetry.Telemetry) {
+	dc.mu.Lock()
+	defer dc.mu.Unlock()
+	
+	dc.telemetry = tel
+	
+	// Update existing proxy clients with stats collector
+	if tel != nil {
+		if dc.current != nil {
+			dc.current.ProxyClient.SetStatsCollector(tel.StatsCollector)
+		}
+		if dc.previous != nil {
+			dc.previous.ProxyClient.SetStatsCollector(tel.StatsCollector)
+		}
+	}
 }

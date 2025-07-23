@@ -26,6 +26,9 @@ type StatsCollector struct {
 	noteWriteRequests    int64
 	noteShardStats       map[string]*ShardStats
 
+	// Per-proxy stats
+	proxyStats map[int]*ProxyStats
+
 	// System stats
 	startTime time.Time
 
@@ -39,6 +42,14 @@ type ShardStats struct {
 	WriteRequests int64
 }
 
+type ProxyStats struct {
+	NoteListRequests   int64
+	NoteReadRequests   int64
+	NoteCreateRequests int64
+	NoteUpdateRequests int64
+	NoteDeleteRequests int64
+}
+
 type Stats struct {
 	AccountCount         int
 	NoteCount            int
@@ -49,6 +60,7 @@ type Stats struct {
 	NoteReadPerSec       int64
 	NoteWritePerSec      int64
 	NoteShardStats       map[string]*ShardStats
+	ProxyStats           map[int]*ProxyStats
 	Uptime               time.Duration
 	GoRoutines           int
 	MemoryUsage          string
@@ -61,6 +73,7 @@ func NewStatsCollector(accountStore store.AccountStore, noteStore store.NoteStor
 		accountStore:   accountStore,
 		noteStore:      noteStore,
 		noteShardStats: make(map[string]*ShardStats),
+		proxyStats:     make(map[int]*ProxyStats),
 		startTime:      time.Now(),
 		ctx:            ctx,
 		cancel:         cancel,
@@ -98,12 +111,46 @@ func (sc *StatsCollector) ensureShard(shard string) {
 	}
 }
 
+// Per-proxy stats methods
+
+func (sc *StatsCollector) IncrementProxyNoteList(proxyID int) {
+	sc.ensureProxy(proxyID)
+	atomic.AddInt64(&sc.proxyStats[proxyID].NoteListRequests, 1)
+}
+
+func (sc *StatsCollector) IncrementProxyNoteRead(proxyID int) {
+	sc.ensureProxy(proxyID)
+	atomic.AddInt64(&sc.proxyStats[proxyID].NoteReadRequests, 1)
+}
+
+func (sc *StatsCollector) IncrementProxyNoteCreate(proxyID int) {
+	sc.ensureProxy(proxyID)
+	atomic.AddInt64(&sc.proxyStats[proxyID].NoteCreateRequests, 1)
+}
+
+func (sc *StatsCollector) IncrementProxyNoteUpdate(proxyID int) {
+	sc.ensureProxy(proxyID)
+	atomic.AddInt64(&sc.proxyStats[proxyID].NoteUpdateRequests, 1)
+}
+
+func (sc *StatsCollector) IncrementProxyNoteDelete(proxyID int) {
+	sc.ensureProxy(proxyID)
+	atomic.AddInt64(&sc.proxyStats[proxyID].NoteDeleteRequests, 1)
+}
+
+func (sc *StatsCollector) ensureProxy(proxyID int) {
+	if _, exists := sc.proxyStats[proxyID]; !exists {
+		sc.proxyStats[proxyID] = &ProxyStats{}
+	}
+}
+
 func (sc *StatsCollector) CollectStats(ctx context.Context) (*Stats, error) {
 	stats := &Stats{
 		LastUpdated:    time.Now(),
 		Uptime:         time.Since(sc.startTime),
 		GoRoutines:     runtime.NumGoroutine(),
 		NoteShardStats: make(map[string]*ShardStats),
+		ProxyStats:     make(map[int]*ProxyStats),
 	}
 
 	// Get account count
@@ -137,6 +184,17 @@ func (sc *StatsCollector) CollectStats(ctx context.Context) (*Stats, error) {
 		stats.NoteShardStats[shard] = &ShardStats{
 			ReadRequests:  atomic.LoadInt64(&shardStats.ReadRequests),
 			WriteRequests: atomic.LoadInt64(&shardStats.WriteRequests),
+		}
+	}
+
+	// Copy proxy stats
+	for proxyID, proxyStats := range sc.proxyStats {
+		stats.ProxyStats[proxyID] = &ProxyStats{
+			NoteListRequests:   atomic.LoadInt64(&proxyStats.NoteListRequests),
+			NoteReadRequests:   atomic.LoadInt64(&proxyStats.NoteReadRequests),
+			NoteCreateRequests: atomic.LoadInt64(&proxyStats.NoteCreateRequests),
+			NoteUpdateRequests: atomic.LoadInt64(&proxyStats.NoteUpdateRequests),
+			NoteDeleteRequests: atomic.LoadInt64(&proxyStats.NoteDeleteRequests),
 		}
 	}
 

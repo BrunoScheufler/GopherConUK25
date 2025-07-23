@@ -129,8 +129,8 @@ type ApplicationComponents struct {
 
 // initializeStores creates and initializes the account and note stores
 func initializeStores() (store.AccountStore, store.NoteStore, *proxy.DeploymentController, error) {
-	// Create deployment controller
-	deploymentController := proxy.NewDeploymentController()
+	// Create deployment controller without telemetry first
+	deploymentController := proxy.NewDeploymentController(nil)
 	
 	// Perform initial deployment
 	if err := deploymentController.Deploy(); err != nil {
@@ -147,6 +147,11 @@ func initializeStores() (store.AccountStore, store.NoteStore, *proxy.DeploymentC
 	}
 
 	return accountStore, noteStore, deploymentController, nil
+}
+
+// setTelemetryOnDeploymentController sets telemetry on the deployment controller after initialization
+func setTelemetryOnDeploymentController(deploymentController *proxy.DeploymentController, tel *telemetry.Telemetry) {
+	deploymentController.SetTelemetry(tel)
 }
 
 // setupTelemetry creates and starts the telemetry system
@@ -200,6 +205,7 @@ func initializeApplication(config Config) (*ApplicationComponents, error) {
 	}
 
 	tel := setupTelemetry(accountStore, noteStore, config.CLIMode)
+	setTelemetryOnDeploymentController(deploymentController, tel)
 	httpServer := createHTTPServer(accountStore, noteStore, tel, port)
 	simulator := createSimulator(config, tel, port)
 

@@ -11,13 +11,15 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/brunoscheufler/gopherconuk25/store"
+	"github.com/brunoscheufler/gopherconuk25/telemetry"
 )
 
 // ProxyClient implements NoteStore interface by sending JSON RPC requests to a data proxy
 type ProxyClient struct {
-	id      int
-	baseURL string
-	client  *http.Client
+	id             int
+	baseURL        string
+	client         *http.Client
+	statsCollector *telemetry.StatsCollector
 }
 
 // NewProxyClient creates a new proxy client
@@ -29,6 +31,11 @@ func NewProxyClient(id int, addr string) *ProxyClient {
 			Timeout: 30 * time.Second,
 		},
 	}
+}
+
+// SetStatsCollector assigns a stats collector to track proxy usage
+func (p *ProxyClient) SetStatsCollector(statsCollector *telemetry.StatsCollector) {
+	p.statsCollector = statsCollector
 }
 
 // makeJSONRPCRequest sends a JSON RPC request to the proxy server
@@ -77,6 +84,10 @@ func (p *ProxyClient) makeJSONRPCRequest(ctx context.Context, method string, par
 
 // ListNotes implements NoteStore interface
 func (p *ProxyClient) ListNotes(ctx context.Context, accountID uuid.UUID) ([]store.Note, error) {
+	if p.statsCollector != nil {
+		p.statsCollector.IncrementProxyNoteList(p.id)
+	}
+
 	params := map[string]interface{}{
 		"accountId": accountID,
 	}
@@ -96,6 +107,10 @@ func (p *ProxyClient) ListNotes(ctx context.Context, accountID uuid.UUID) ([]sto
 
 // GetNote implements NoteStore interface
 func (p *ProxyClient) GetNote(ctx context.Context, accountID, noteID uuid.UUID) (*store.Note, error) {
+	if p.statsCollector != nil {
+		p.statsCollector.IncrementProxyNoteRead(p.id)
+	}
+
 	params := map[string]interface{}{
 		"accountId": accountID,
 		"noteId":    noteID,
@@ -116,6 +131,10 @@ func (p *ProxyClient) GetNote(ctx context.Context, accountID, noteID uuid.UUID) 
 
 // CreateNote implements NoteStore interface
 func (p *ProxyClient) CreateNote(ctx context.Context, accountID uuid.UUID, note store.Note) error {
+	if p.statsCollector != nil {
+		p.statsCollector.IncrementProxyNoteCreate(p.id)
+	}
+
 	params := map[string]interface{}{
 		"accountId": accountID,
 		"note":      note,
@@ -127,6 +146,10 @@ func (p *ProxyClient) CreateNote(ctx context.Context, accountID uuid.UUID, note 
 
 // UpdateNote implements NoteStore interface
 func (p *ProxyClient) UpdateNote(ctx context.Context, accountID uuid.UUID, note store.Note) error {
+	if p.statsCollector != nil {
+		p.statsCollector.IncrementProxyNoteUpdate(p.id)
+	}
+
 	params := map[string]interface{}{
 		"accountId": accountID,
 		"note":      note,
@@ -138,6 +161,10 @@ func (p *ProxyClient) UpdateNote(ctx context.Context, accountID uuid.UUID, note 
 
 // DeleteNote implements NoteStore interface
 func (p *ProxyClient) DeleteNote(ctx context.Context, accountID uuid.UUID, note store.Note) error {
+	if p.statsCollector != nil {
+		p.statsCollector.IncrementProxyNoteDelete(p.id)
+	}
+
 	params := map[string]interface{}{
 		"accountId": accountID,
 		"note":      note,
