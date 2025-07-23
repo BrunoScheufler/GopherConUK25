@@ -94,6 +94,7 @@ func (c *CLIApp) Setup() {
 	c.logView.SetTitleAlign(tview.AlignLeft)
 	c.logView.SetDynamicColors(true)
 	c.logView.SetScrollable(true)
+	c.logView.SetWordWrap(true)
 	c.logView.SetChangedFunc(func() {
 		c.app.Draw()
 	})

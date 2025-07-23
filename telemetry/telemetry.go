@@ -15,7 +15,6 @@ type Telemetry struct {
 	Logger         *slog.Logger
 }
 
-
 // New creates a new telemetry instance
 func New(cliMode bool) *Telemetry {
 	logCapture := NewLogCapture(constants.DefaultLogBufferSize)
@@ -23,10 +22,9 @@ func New(cliMode bool) *Telemetry {
 
 	var logger *slog.Logger
 	if cliMode {
-		// In CLI mode, send logs only to the capture system without colors
+		// In CLI mode, send logs to the capture system with colors (tview supports ANSI)
 		handler := tint.NewHandler(logCapture, &tint.Options{
-			Level:   slog.LevelDebug,
-			NoColor: true, // Disable colors for CLI mode
+			Level: slog.LevelDebug,
 		})
 		logger = slog.New(handler)
 	} else {

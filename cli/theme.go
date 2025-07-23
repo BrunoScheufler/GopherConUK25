@@ -99,17 +99,17 @@ Memory:{{.ValueColor}} {{.MemoryUsage}}{{.LabelColor}}
 Updated:{{.SecondaryColor}} {{.LastUpdated}}[-]`
 
 type StatsData struct {
-	AccountCount    int
-	NoteCount       int
-	TotalRequests   int64
-	RequestsPerSec  int64
-	Uptime          string
-	GoRoutines      int
-	MemoryUsage     string
-	LastUpdated     string
-	LabelColor      string
-	ValueColor      string
-	SecondaryColor  string
+	AccountCount   int
+	NoteCount      int
+	TotalRequests  int64
+	RequestsPerSec int64
+	Uptime         string
+	GoRoutines     int
+	MemoryUsage    string
+	LastUpdated    string
+	LabelColor     string
+	ValueColor     string
+	SecondaryColor string
 }
 
 var statsTemplateParsed = template.Must(template.New("stats").Parse(statsTemplate))
@@ -121,19 +121,19 @@ func getStoreCounts(ctx context.Context, accountStore store.AccountStore, noteSt
 			accountCount = len(accounts)
 		}
 	}
-	
+
 	if noteStore != nil {
 		if count, err := noteStore.GetTotalNotes(ctx); err == nil {
 			noteCount = count
 		}
 	}
-	
+
 	return accountCount, noteCount
 }
 
 func FormatStatsWithTheme(stats *telemetry.Stats, theme Theme, accountStore store.AccountStore, noteStore store.NoteStore, ctx context.Context) string {
 	var labelColor, valueColor, secondaryColor string
-	
+
 	if theme.Name == "light" {
 		labelColor = "[navy]"
 		valueColor = "[teal]"
@@ -165,7 +165,7 @@ func FormatStatsWithTheme(stats *telemetry.Stats, theme Theme, accountStore stor
 	if err := statsTemplateParsed.Execute(&buf, data); err != nil {
 		return fmt.Sprintf("Error formatting stats: %v", err)
 	}
-	
+
 	return buf.String()
 }
 
@@ -177,14 +177,7 @@ func formatDuration(d time.Duration) string {
 }
 
 func FormatLogEntryWithTheme(entry telemetry.LogEntry, theme Theme) string {
-	if theme.Name == "light" {
-		return fmt.Sprintf("[darkgray][%s][-] %s",
-			entry.Timestamp.Format("15:04:05"),
-			entry.Message)
-	}
-
-	// Dark theme (default)
-	return fmt.Sprintf("[gray][%s][-] %s",
-		entry.Timestamp.Format("15:04:05"),
-		entry.Message)
+	// The tint handler already includes ANSI colors and timestamp formatting,
+	// so we can return the message directly for tview to interpret
+	return tview.TranslateANSI(entry.Message)
 }
