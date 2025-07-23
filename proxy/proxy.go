@@ -28,7 +28,7 @@ type DataProxy struct {
 
 // NewDataProxy creates a new DataProxy instance with a SQLite note store
 func NewDataProxy(port int, dbName string) (*DataProxy, error) {
-	noteStore, err := store.NewNoteStore(dbName)
+	noteStore, err := store.NewNoteStore(store.DefaultStoreOptions(dbName))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create note store: %w", err)
 	}

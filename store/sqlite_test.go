@@ -39,12 +39,18 @@ func setupTestStores(t *testing.T, dbName string) (AccountStore, NoteStore, stri
 		ConnMaxLifetime: 5 * time.Minute,
 	}
 
-	accountStore, err := NewAccountStoreWithPath(dbName, tmpDir, config)
+	opts := StoreOptions{
+		Name:     dbName,
+		BasePath: tmpDir,
+		Config:   config,
+	}
+
+	accountStore, err := NewAccountStore(opts)
 	if err != nil {
 		t.Fatalf("Failed to create account store: %v", err)
 	}
 
-	noteStore, err := NewNoteStoreWithPath(dbName, tmpDir, config)
+	noteStore, err := NewNoteStore(opts)
 	if err != nil {
 		t.Fatalf("Failed to create note store: %v", err)
 	}

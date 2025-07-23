@@ -128,7 +128,7 @@ func initializeStores(tel *telemetry.Telemetry) (store.AccountStore, store.NoteS
 	// Use deployment controller as note store
 	noteStore := deploymentController
 
-	accountStore, err := store.NewAccountStore("accounts")
+	accountStore, err := store.NewAccountStore(store.DefaultStoreOptions("accounts"))
 	if err != nil {
 		deploymentController.Close() // Clean up proxy if account store creation fails
 		return nil, nil, nil, fmt.Errorf("could not create account store: %w", err)

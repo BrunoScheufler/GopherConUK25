@@ -289,16 +289,23 @@ func (s *sqliteNoteStore) Close() error {
 	return s.db.Close()
 }
 
-func NewAccountStore(name string) (AccountStore, error) {
-	return NewAccountStoreWithConfig(name, DefaultDatabaseConfig())
+// StoreOptions configures store creation
+type StoreOptions struct {
+	Name     string
+	BasePath string
+	Config   DatabaseConfig
 }
 
-func NewAccountStoreWithConfig(name string, config DatabaseConfig) (AccountStore, error) {
-	return NewAccountStoreWithPath(name, "", config)
+// DefaultStoreOptions returns sensible defaults for store creation
+func DefaultStoreOptions(name string) StoreOptions {
+	return StoreOptions{
+		Name:   name,
+		Config: DefaultDatabaseConfig(),
+	}
 }
 
-func NewAccountStoreWithPath(name, basePath string, config DatabaseConfig) (AccountStore, error) {
-	db, err := createSQLiteDatabaseWithPath(name, basePath, config)
+func NewAccountStore(opts StoreOptions) (AccountStore, error) {
+	db, err := createSQLiteDatabaseWithPath(opts.Name, opts.BasePath, opts.Config)
 	if err != nil {
 		return nil, fmt.Errorf("could not create sqlite db: %w", err)
 	}
@@ -311,16 +318,8 @@ func NewAccountStoreWithPath(name, basePath string, config DatabaseConfig) (Acco
 	return &sqliteAccountStore{db}, nil
 }
 
-func NewNoteStore(name string) (NoteStore, error) {
-	return NewNoteStoreWithConfig(name, DefaultDatabaseConfig())
-}
-
-func NewNoteStoreWithConfig(name string, config DatabaseConfig) (NoteStore, error) {
-	return NewNoteStoreWithPath(name, "", config)
-}
-
-func NewNoteStoreWithPath(name, basePath string, config DatabaseConfig) (NoteStore, error) {
-	db, err := createSQLiteDatabaseWithPath(name, basePath, config)
+func NewNoteStore(opts StoreOptions) (NoteStore, error) {
+	db, err := createSQLiteDatabaseWithPath(opts.Name, opts.BasePath, opts.Config)
 	if err != nil {
 		return nil, fmt.Errorf("could not create sqlite db: %w", err)
 	}
@@ -358,13 +357,6 @@ func createAccountsTable(db *sql.DB) error {
 	return err
 }
 
-func createSQLiteDatabase(name string) (*sql.DB, error) {
-	return createSQLiteDatabaseWithConfig(name, DefaultDatabaseConfig())
-}
-
-func createSQLiteDatabaseWithConfig(name string, config DatabaseConfig) (*sql.DB, error) {
-	return createSQLiteDatabaseWithPath(name, "", config)
-}
 
 func createSQLiteDatabaseWithPath(name, basePath string, config DatabaseConfig) (*sql.DB, error) {
 	var dir string
