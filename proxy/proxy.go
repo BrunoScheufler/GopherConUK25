@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"sync"
 	"time"
@@ -171,6 +172,10 @@ func (p *DataProxy) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+
+	// Simulate network delay between 1-5ms
+	delay := time.Duration(rand.Intn(constants.MaxNetworkDelayMs)+1) * time.Millisecond
+	time.Sleep(delay)
 
 	var req JSONRPCRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

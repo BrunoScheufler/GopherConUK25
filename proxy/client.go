@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/brunoscheufler/gopherconuk25/constants"
 	"github.com/brunoscheufler/gopherconuk25/store"
 	"github.com/brunoscheufler/gopherconuk25/telemetry"
 )
@@ -57,6 +59,10 @@ func (p *ProxyClient) makeJSONRPCRequest(ctx context.Context, method string, par
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+
+	// Simulate network delay between 1-5ms
+	delay := time.Duration(rand.Intn(constants.MaxNetworkDelayMs)+1) * time.Millisecond
+	time.Sleep(delay)
 
 	resp, err := p.client.Do(req)
 	if err != nil {

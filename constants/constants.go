@@ -26,6 +26,7 @@ const (
 	ProxyPort          = 9000
 	ShardOfflineTimeout = 5 * time.Second
 	RollingReleaseDelay = 5 * time.Second
+	MaxNetworkDelayMs  = 5
 )
 
 // Shard constants
