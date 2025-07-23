@@ -16,7 +16,7 @@ type sqliteAccountStore struct {
 	db *sql.DB
 }
 
-func (s sqliteAccountStore) ListAccounts(ctx context.Context) ([]Account, error) {
+func (s *sqliteAccountStore) ListAccounts(ctx context.Context) ([]Account, error) {
 	query := `SELECT id, name FROM accounts`
 	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
@@ -48,7 +48,7 @@ func (s sqliteAccountStore) ListAccounts(ctx context.Context) ([]Account, error)
 	return accounts, nil
 }
 
-func (s sqliteAccountStore) CreateAccount(ctx context.Context, a Account) error {
+func (s *sqliteAccountStore) CreateAccount(ctx context.Context, a Account) error {
 	query := `INSERT INTO accounts (id, name) VALUES (?, ?)`
 	_, err := s.db.ExecContext(ctx, query, a.ID.String(), a.Name)
 	if err != nil {
@@ -57,7 +57,7 @@ func (s sqliteAccountStore) CreateAccount(ctx context.Context, a Account) error 
 	return nil
 }
 
-func (s sqliteAccountStore) UpdateAccount(ctx context.Context, a Account) error {
+func (s *sqliteAccountStore) UpdateAccount(ctx context.Context, a Account) error {
 	query := `UPDATE accounts SET name = ? WHERE id = ?`
 	result, err := s.db.ExecContext(ctx, query, a.Name, a.ID.String())
 	if err != nil {
@@ -76,7 +76,7 @@ func (s sqliteAccountStore) UpdateAccount(ctx context.Context, a Account) error 
 	return nil
 }
 
-func (s sqliteAccountStore) HealthCheck(ctx context.Context) error {
+func (s *sqliteAccountStore) HealthCheck(ctx context.Context) error {
 	// Simple ping query to check database connectivity
 	return s.db.PingContext(ctx)
 }
@@ -85,7 +85,7 @@ type sqliteNoteStore struct {
 	db *sql.DB
 }
 
-func (s sqliteNoteStore) ListNotes(ctx context.Context, accountID uuid.UUID) ([]Note, error) {
+func (s *sqliteNoteStore) ListNotes(ctx context.Context, accountID uuid.UUID) ([]Note, error) {
 	query := `SELECT id, creator, created_at, updated_at, content FROM notes WHERE creator = ?`
 	rows, err := s.db.QueryContext(ctx, query, accountID.String())
 	if err != nil {
@@ -126,7 +126,7 @@ func (s sqliteNoteStore) ListNotes(ctx context.Context, accountID uuid.UUID) ([]
 	return notes, nil
 }
 
-func (s sqliteNoteStore) GetNote(ctx context.Context, accountID, noteID uuid.UUID) (*Note, error) {
+func (s *sqliteNoteStore) GetNote(ctx context.Context, accountID, noteID uuid.UUID) (*Note, error) {
 	query := `SELECT id, creator, created_at, updated_at, content FROM notes WHERE id = ? AND creator = ?`
 	row := s.db.QueryRowContext(ctx, query, noteID.String(), accountID.String())
 
@@ -157,7 +157,7 @@ func (s sqliteNoteStore) GetNote(ctx context.Context, accountID, noteID uuid.UUI
 	return &note, nil
 }
 
-func (s sqliteNoteStore) CreateNote(ctx context.Context, accountID uuid.UUID, note Note) error {
+func (s *sqliteNoteStore) CreateNote(ctx context.Context, accountID uuid.UUID, note Note) error {
 	query := `INSERT INTO notes (id, creator, created_at, updated_at, content) VALUES (?, ?, ?, ?, ?)`
 	_, err := s.db.ExecContext(ctx, query, note.ID.String(), accountID.String(), note.CreatedAt.UnixMilli(), note.UpdatedAt.UnixMilli(), note.Content)
 	if err != nil {
@@ -166,7 +166,7 @@ func (s sqliteNoteStore) CreateNote(ctx context.Context, accountID uuid.UUID, no
 	return nil
 }
 
-func (s sqliteNoteStore) UpdateNote(ctx context.Context, accountID uuid.UUID, note Note) error {
+func (s *sqliteNoteStore) UpdateNote(ctx context.Context, accountID uuid.UUID, note Note) error {
 	query := `UPDATE notes SET content = ?, updated_at = ? WHERE id = ? AND creator = ?`
 	result, err := s.db.ExecContext(ctx, query, note.Content, note.UpdatedAt.UnixMilli(), note.ID.String(), accountID.String())
 	if err != nil {
@@ -185,7 +185,7 @@ func (s sqliteNoteStore) UpdateNote(ctx context.Context, accountID uuid.UUID, no
 	return nil
 }
 
-func (s sqliteNoteStore) DeleteNote(ctx context.Context, accountID uuid.UUID, note Note) error {
+func (s *sqliteNoteStore) DeleteNote(ctx context.Context, accountID uuid.UUID, note Note) error {
 	query := `DELETE FROM notes WHERE id = ? AND creator = ?`
 	result, err := s.db.ExecContext(ctx, query, note.ID.String(), accountID.String())
 	if err != nil {
@@ -204,7 +204,7 @@ func (s sqliteNoteStore) DeleteNote(ctx context.Context, accountID uuid.UUID, no
 	return nil
 }
 
-func (s sqliteNoteStore) CountNotes(ctx context.Context, accountID uuid.UUID) (int, error) {
+func (s *sqliteNoteStore) CountNotes(ctx context.Context, accountID uuid.UUID) (int, error) {
 	query := `SELECT COUNT(*) FROM notes WHERE creator = ?`
 	var count int
 	err := s.db.QueryRowContext(ctx, query, accountID.String()).Scan(&count)
@@ -214,7 +214,7 @@ func (s sqliteNoteStore) CountNotes(ctx context.Context, accountID uuid.UUID) (i
 	return count, nil
 }
 
-func (s sqliteNoteStore) GetTotalNotes(ctx context.Context) (int, error) {
+func (s *sqliteNoteStore) GetTotalNotes(ctx context.Context) (int, error) {
 	query := `SELECT COUNT(*) FROM notes`
 	var count int
 	err := s.db.QueryRowContext(ctx, query).Scan(&count)
@@ -224,7 +224,7 @@ func (s sqliteNoteStore) GetTotalNotes(ctx context.Context) (int, error) {
 	return count, nil
 }
 
-func (s sqliteNoteStore) HealthCheck(ctx context.Context) error {
+func (s *sqliteNoteStore) HealthCheck(ctx context.Context) error {
 	// Simple ping query to check database connectivity
 	return s.db.PingContext(ctx)
 }
