@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
-	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/brunoscheufler/gopherconuk25/constants"
 	"github.com/brunoscheufler/gopherconuk25/store"
 	"github.com/brunoscheufler/gopherconuk25/telemetry"
 )
@@ -149,7 +149,7 @@ func (p *DataProxy) Run(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 		// Graceful shutdown
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), constants.GracefulShutdownTimeout)
 		defer cancel()
 		return p.server.Shutdown(shutdownCtx)
 	case err := <-errChan:

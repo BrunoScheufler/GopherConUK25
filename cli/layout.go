@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/brunoscheufler/gopherconuk25/constants"
 	"github.com/brunoscheufler/gopherconuk25/proxy"
 	"github.com/brunoscheufler/gopherconuk25/store"
 	"github.com/brunoscheufler/gopherconuk25/telemetry"
@@ -193,7 +194,7 @@ func (c *CLIApp) IncrementRequest() {
 }
 
 func (c *CLIApp) statsUpdateLoop() {
-	ticker := time.NewTicker(telemetry.DefaultStatsInterval)
+	ticker := time.NewTicker(constants.DefaultStatsInterval)
 	defer ticker.Stop()
 
 	for {

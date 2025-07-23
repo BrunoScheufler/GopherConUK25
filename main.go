@@ -13,26 +13,13 @@ import (
 	"time"
 
 	"github.com/brunoscheufler/gopherconuk25/cli"
+	"github.com/brunoscheufler/gopherconuk25/constants"
 	"github.com/brunoscheufler/gopherconuk25/proxy"
 	"github.com/brunoscheufler/gopherconuk25/restapi"
 	"github.com/brunoscheufler/gopherconuk25/store"
 	"github.com/brunoscheufler/gopherconuk25/telemetry"
 )
 
-const (
-	// Health check configuration
-	MaxHealthCheckRetries    = 10
-	HealthCheckRetryInterval = 200 * time.Millisecond
-	HealthCheckTimeout       = 5 * time.Second
-	
-	// Server configuration
-	DefaultPort              = "8080"
-	GracefulShutdownTimeout  = 5 * time.Second
-	
-	// Load generator configuration
-	MillisecondsPerMinute    = 60000
-	LoadGenStartupDelay      = 100 * time.Millisecond
-)
 
 // Config holds all configuration parameters for running the application
 type Config struct {
@@ -56,7 +43,7 @@ type Config struct {
 func main() {
 	cliMode := flag.Bool("cli", false, "Run in CLI mode with TUI")
 	theme := flag.String("theme", "dark", "Theme for CLI mode (dark or light)")
-	port := flag.String("port", DefaultPort, "Port to run the HTTP server on")
+	port := flag.String("port", constants.DefaultPort, "Port to run the HTTP server on")
 	
 	// Proxy flags
 	proxyMode := flag.Bool("proxy", false, "Run as data proxy")
@@ -99,11 +86,11 @@ func checkPortAvailable(port string) error {
 
 // checkServerHealth validates that the server is ready by calling /healthz
 func checkServerHealth(port string) error {
-	client := &http.Client{Timeout: HealthCheckTimeout}
+	client := &http.Client{Timeout: constants.HealthCheckTimeout}
 	url := fmt.Sprintf("http://localhost%s/healthz", port)
 
 	// Retry health check with configured retries and intervals
-	for i := 0; i < MaxHealthCheckRetries; i++ {
+	for i := 0; i < constants.MaxHealthCheckRetries; i++ {
 		resp, err := client.Get(url)
 		if err == nil {
 			resp.Body.Close()
@@ -111,7 +98,7 @@ func checkServerHealth(port string) error {
 				return nil
 			}
 		}
-		time.Sleep(HealthCheckRetryInterval)
+		time.Sleep(constants.HealthCheckRetryInterval)
 	}
 
 	return fmt.Errorf("server health check failed after retries")
@@ -262,7 +249,7 @@ func runDataProxy(port int) error {
 	}()
 
 	// Create data proxy with notes shard
-	dataProxy, err := proxy.NewDataProxy(port, store.NoteShard1)
+	dataProxy, err := proxy.NewDataProxy(port, constants.NoteShard1)
 	if err != nil {
 		return fmt.Errorf("failed to create data proxy: %w", err)
 	}
@@ -331,7 +318,7 @@ func runWithCLI(httpServer *http.Server, accountStore store.AccountStore, noteSt
 		
 		logger.Info("Shutting down HTTP server...")
 		
-		ctx, cancel := context.WithTimeout(context.Background(), GracefulShutdownTimeout)
+		ctx, cancel := context.WithTimeout(context.Background(), constants.GracefulShutdownTimeout)
 		defer cancel()
 
 		if shutdownErr := httpServer.Shutdown(ctx); shutdownErr != nil {
@@ -378,7 +365,7 @@ func runServer(httpServer *http.Server, shutdownTrigger <-chan error, simulator 
 	if simulator != nil {
 		go func() {
 			// Wait a moment for server to be ready
-			time.Sleep(LoadGenStartupDelay)
+			time.Sleep(constants.LoadGenStartupDelay)
 			if err := simulator.Start(); err != nil {
 				logger.Error("Load generator failed to start", "error", err)
 			}
@@ -392,7 +379,7 @@ func runServer(httpServer *http.Server, shutdownTrigger <-chan error, simulator 
 	case err := <-shutdownTrigger:
 		// Shutdown triggered (CLI exit or signal)
 		logger.Info("Shutting down server...")
-		ctx, cancel := context.WithTimeout(context.Background(), GracefulShutdownTimeout)
+		ctx, cancel := context.WithTimeout(context.Background(), constants.GracefulShutdownTimeout)
 		defer cancel()
 
 		if shutdownErr := httpServer.Shutdown(ctx); shutdownErr != nil {

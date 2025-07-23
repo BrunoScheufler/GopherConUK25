@@ -3,8 +3,8 @@ package telemetry
 import (
 	"log/slog"
 	"os"
-	"time"
 
+	"github.com/brunoscheufler/gopherconuk25/constants"
 	"github.com/brunoscheufler/gopherconuk25/store"
 	"github.com/lmittmann/tint"
 )
@@ -16,16 +16,10 @@ type Telemetry struct {
 	Logger         *slog.Logger
 }
 
-const (
-	// DefaultLogBufferSize is the default number of log entries to keep in memory
-	DefaultLogBufferSize = 1000
-	// DefaultStatsInterval is the default interval for stats collection
-	DefaultStatsInterval = 2 * time.Second
-)
 
 // New creates a new telemetry instance
 func New(accountStore store.AccountStore, noteStore store.NoteStore, cliMode bool) *Telemetry {
-	logCapture := NewLogCapture(DefaultLogBufferSize)
+	logCapture := NewLogCapture(constants.DefaultLogBufferSize)
 	statsCollector := NewStatsCollector(accountStore, noteStore)
 
 	var logger *slog.Logger

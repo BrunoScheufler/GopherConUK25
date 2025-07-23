@@ -8,10 +8,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// Shard constants
-const (
-	NoteShard1 = "notes1"
-)
 
 type Account struct {
 	ID   uuid.UUID `json:"id"`

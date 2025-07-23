@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/brunoscheufler/gopherconuk25/constants"
 	"github.com/brunoscheufler/gopherconuk25/telemetry"
 )
 
@@ -127,7 +128,7 @@ func (dpp *DataProxyProcess) Shutdown() error {
 	case err := <-done:
 		dpp.Process = nil
 		return err
-	case <-time.After(5 * time.Second):
+	case <-time.After(constants.ShardOfflineTimeout):
 		// Force kill if graceful shutdown takes too long
 		if err := dpp.Process.Kill(); err != nil {
 			return fmt.Errorf("failed to force kill process: %w", err)

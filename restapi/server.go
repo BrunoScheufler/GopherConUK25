@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/brunoscheufler/gopherconuk25/constants"
 	"github.com/brunoscheufler/gopherconuk25/store"
 	"github.com/brunoscheufler/gopherconuk25/telemetry"
 	"github.com/google/uuid"
@@ -187,7 +188,7 @@ func (s *Server) handleListNotes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.telemetry.GetStatsCollector().IncrementNoteRead(store.NoteShard1)
+	s.telemetry.GetStatsCollector().IncrementNoteRead(constants.NoteShard1)
 	s.writeJSON(w, http.StatusOK, notes)
 }
 
@@ -215,7 +216,7 @@ func (s *Server) handleGetNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.telemetry.GetStatsCollector().IncrementNoteRead(store.NoteShard1)
+	s.telemetry.GetStatsCollector().IncrementNoteRead(constants.NoteShard1)
 	s.writeJSON(w, http.StatusOK, note)
 }
 
@@ -247,7 +248,7 @@ func (s *Server) handleCreateNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.telemetry.GetStatsCollector().IncrementNoteWrite(store.NoteShard1)
+	s.telemetry.GetStatsCollector().IncrementNoteWrite(constants.NoteShard1)
 	s.writeJSON(w, http.StatusCreated, note)
 }
 
@@ -282,7 +283,7 @@ func (s *Server) handleUpdateNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.telemetry.GetStatsCollector().IncrementNoteWrite(store.NoteShard1)
+	s.telemetry.GetStatsCollector().IncrementNoteWrite(constants.NoteShard1)
 	s.writeJSON(w, http.StatusOK, note)
 }
 
@@ -310,6 +311,6 @@ func (s *Server) handleDeleteNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.telemetry.GetStatsCollector().IncrementNoteWrite(store.NoteShard1)
+	s.telemetry.GetStatsCollector().IncrementNoteWrite(constants.NoteShard1)
 	w.WriteHeader(http.StatusNoContent)
 }

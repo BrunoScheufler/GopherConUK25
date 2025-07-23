@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/brunoscheufler/gopherconuk25/constants"
 	"github.com/brunoscheufler/gopherconuk25/store"
 	"github.com/brunoscheufler/gopherconuk25/telemetry"
 )
@@ -298,12 +299,11 @@ func (dc *DeploymentController) SetTelemetry(tel *telemetry.Telemetry) {
 	}
 }
 
-const InstrumentInterval = 2 * time.Second
 
 // StartInstrument begins collecting stats from proxy servers every 2 seconds
 func (dc *DeploymentController) StartInstrument() {
 	go func() {
-		ticker := time.NewTicker(InstrumentInterval)
+		ticker := time.NewTicker(constants.InstrumentInterval)
 		defer ticker.Stop()
 
 		for {
@@ -317,7 +317,7 @@ func (dc *DeploymentController) StartInstrument() {
 
 // collectProxyStats collects statistics from current and previous proxies
 func (dc *DeploymentController) collectProxyStats() {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), constants.RollingReleaseDelay)
 	defer cancel()
 
 	dc.mu.RLock()
