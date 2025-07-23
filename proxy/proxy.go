@@ -34,7 +34,7 @@ func NewDataProxy(port int, dbName string) (*DataProxy, error) {
 	}
 
 	// Create a local stats collector for data store tracking
-	statsCollector := telemetry.NewStatsCollector(nil, noteStore)
+	statsCollector := telemetry.NewStatsCollector()
 
 	return &DataProxy{
 		port:           port,

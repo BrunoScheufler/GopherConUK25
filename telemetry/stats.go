@@ -6,14 +6,9 @@ import (
 	"runtime"
 	"sync/atomic"
 	"time"
-
-	"github.com/brunoscheufler/gopherconuk25/store"
 )
 
 type StatsCollector struct {
-	accountStore store.AccountStore
-	noteStore    store.NoteStore
-
 	// Request counters
 	totalRequests   int64
 	requestsPerSec  int64
@@ -74,8 +69,6 @@ type DataStoreStats struct {
 }
 
 type Stats struct {
-	AccountCount         int
-	NoteCount            int
 	TotalRequests        int64
 	RequestsPerSec       int64
 	AccountReadPerSec    int64
@@ -91,11 +84,9 @@ type Stats struct {
 	LastUpdated          time.Time
 }
 
-func NewStatsCollector(accountStore store.AccountStore, noteStore store.NoteStore) *StatsCollector {
+func NewStatsCollector() *StatsCollector {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &StatsCollector{
-		accountStore:   accountStore,
-		noteStore:      noteStore,
 		noteShardStats: make(map[string]*ShardStats),
 		proxyStats:     make(map[int]*ProxyStats),
 		dataStoreNoteListRequests:   make(map[string]*RequestStats),
@@ -217,22 +208,6 @@ func (sc *StatsCollector) CollectStats(ctx context.Context) (*Stats, error) {
 		GoRoutines:     runtime.NumGoroutine(),
 		NoteShardStats: make(map[string]*ShardStats),
 		ProxyStats:     make(map[int]*ProxyStats),
-	}
-
-	// Get account count
-	if sc.accountStore != nil {
-		accounts, err := sc.accountStore.ListAccounts(ctx)
-		if err == nil {
-			stats.AccountCount = len(accounts)
-		}
-	}
-
-	// Get note count
-	if sc.noteStore != nil {
-		count, err := sc.noteStore.GetTotalNotes(ctx)
-		if err == nil {
-			stats.NoteCount = count
-		}
 	}
 
 	// Request stats

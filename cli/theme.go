@@ -2,10 +2,12 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"text/template"
 	"time"
 
+	"github.com/brunoscheufler/gopherconuk25/store"
 	"github.com/brunoscheufler/gopherconuk25/telemetry"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -112,7 +114,24 @@ type StatsData struct {
 
 var statsTemplateParsed = template.Must(template.New("stats").Parse(statsTemplate))
 
-func FormatStatsWithTheme(stats *telemetry.Stats, theme Theme) string {
+// getStoreCounts retrieves live counts from the account and note stores
+func getStoreCounts(ctx context.Context, accountStore store.AccountStore, noteStore store.NoteStore) (accountCount, noteCount int) {
+	if accountStore != nil {
+		if accounts, err := accountStore.ListAccounts(ctx); err == nil {
+			accountCount = len(accounts)
+		}
+	}
+	
+	if noteStore != nil {
+		if count, err := noteStore.GetTotalNotes(ctx); err == nil {
+			noteCount = count
+		}
+	}
+	
+	return accountCount, noteCount
+}
+
+func FormatStatsWithTheme(stats *telemetry.Stats, theme Theme, accountStore store.AccountStore, noteStore store.NoteStore, ctx context.Context) string {
 	var labelColor, valueColor, secondaryColor string
 	
 	if theme.Name == "light" {
@@ -125,9 +144,12 @@ func FormatStatsWithTheme(stats *telemetry.Stats, theme Theme) string {
 		secondaryColor = "[gray]"
 	}
 
+	// Get live counts from stores
+	accountCount, noteCount := getStoreCounts(ctx, accountStore, noteStore)
+
 	data := StatsData{
-		AccountCount:   stats.AccountCount,
-		NoteCount:      stats.NoteCount,
+		AccountCount:   accountCount,
+		NoteCount:      noteCount,
 		TotalRequests:  stats.TotalRequests,
 		RequestsPerSec: stats.RequestsPerSec,
 		Uptime:         formatDuration(stats.Uptime),

@@ -231,7 +231,7 @@ func (c *CLIApp) updateStats() {
 	theme := GetTheme(c.options.Theme)
 	c.app.QueueUpdateDraw(func() {
 		c.statsView.Clear()
-		text := FormatStatsWithTheme(stats, theme)
+		text := FormatStatsWithTheme(stats, theme, c.accountStore, c.noteStore, c.ctx)
 		c.statsView.SetText(text)
 	})
 }

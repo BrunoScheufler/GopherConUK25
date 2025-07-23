@@ -5,7 +5,6 @@ import (
 	"os"
 
 	"github.com/brunoscheufler/gopherconuk25/constants"
-	"github.com/brunoscheufler/gopherconuk25/store"
 	"github.com/lmittmann/tint"
 )
 
@@ -18,9 +17,9 @@ type Telemetry struct {
 
 
 // New creates a new telemetry instance
-func New(accountStore store.AccountStore, noteStore store.NoteStore, cliMode bool) *Telemetry {
+func New(cliMode bool) *Telemetry {
 	logCapture := NewLogCapture(constants.DefaultLogBufferSize)
-	statsCollector := NewStatsCollector(accountStore, noteStore)
+	statsCollector := NewStatsCollector()
 
 	var logger *slog.Logger
 	if cliMode {

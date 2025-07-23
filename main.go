@@ -115,9 +115,9 @@ type ApplicationComponents struct {
 }
 
 // initializeStores creates and initializes the account and note stores
-func initializeStores() (store.AccountStore, store.NoteStore, *proxy.DeploymentController, error) {
-	// Create deployment controller without telemetry first
-	deploymentController := proxy.NewDeploymentController(nil)
+func initializeStores(tel *telemetry.Telemetry) (store.AccountStore, store.NoteStore, *proxy.DeploymentController, error) {
+	// Create deployment controller with telemetry
+	deploymentController := proxy.NewDeploymentController(tel)
 	
 	// Perform initial deployment
 	if err := deploymentController.Deploy(); err != nil {
@@ -136,14 +136,10 @@ func initializeStores() (store.AccountStore, store.NoteStore, *proxy.DeploymentC
 	return accountStore, noteStore, deploymentController, nil
 }
 
-// setTelemetryOnDeploymentController sets telemetry on the deployment controller after initialization
-func setTelemetryOnDeploymentController(deploymentController *proxy.DeploymentController, tel *telemetry.Telemetry) {
-	deploymentController.SetTelemetry(tel)
-}
 
 // setupTelemetry creates and starts the telemetry system
-func setupTelemetry(accountStore store.AccountStore, noteStore store.NoteStore, cliMode bool) *telemetry.Telemetry {
-	tel := telemetry.New(accountStore, noteStore, cliMode)
+func setupTelemetry(cliMode bool) *telemetry.Telemetry {
+	tel := telemetry.New(cliMode)
 	tel.SetupGlobalLogger()
 	tel.Start()
 	return tel
@@ -186,13 +182,14 @@ func initializeApplication(config Config) (*ApplicationComponents, error) {
 		return nil, err
 	}
 
-	accountStore, noteStore, deploymentController, err := initializeStores()
+	// Create telemetry first so it can be passed to all components
+	tel := setupTelemetry(config.CLIMode)
+
+	accountStore, noteStore, deploymentController, err := initializeStores(tel)
 	if err != nil {
 		return nil, err
 	}
 
-	tel := setupTelemetry(accountStore, noteStore, config.CLIMode)
-	setTelemetryOnDeploymentController(deploymentController, tel)
 	deploymentController.StartInstrument()
 	httpServer := createHTTPServer(accountStore, noteStore, tel, port)
 	simulator := createSimulator(config, tel, port)
