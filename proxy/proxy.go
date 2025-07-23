@@ -11,14 +11,17 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/brunoscheufler/gopherconuk25/store"
+	"github.com/brunoscheufler/gopherconuk25/telemetry"
 )
 
 // DataProxy implements the NoteStore interface with synchronization
 type DataProxy struct {
-	port      int
-	noteStore store.NoteStore
-	mu        sync.Mutex
-	server    *http.Server
+	port           int
+	noteStore      store.NoteStore
+	statsCollector *telemetry.StatsCollector
+	shardID        string
+	mu             sync.Mutex
+	server         *http.Server
 }
 
 // NewDataProxy creates a new DataProxy instance with a SQLite note store
@@ -28,9 +31,14 @@ func NewDataProxy(port int, dbName string) (*DataProxy, error) {
 		return nil, fmt.Errorf("failed to create note store: %w", err)
 	}
 
+	// Create a local stats collector for data store tracking
+	statsCollector := telemetry.NewStatsCollector(nil, noteStore)
+
 	return &DataProxy{
-		port:      port,
-		noteStore: noteStore,
+		port:           port,
+		noteStore:      noteStore,
+		statsCollector: statsCollector,
+		shardID:        dbName, // Use dbName as shard ID
 	}, nil
 }
 
@@ -38,6 +46,8 @@ func NewDataProxy(port int, dbName string) (*DataProxy, error) {
 func (p *DataProxy) ListNotes(ctx context.Context, accountID uuid.UUID) ([]store.Note, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	
+	p.statsCollector.IncrementDataStoreNoteList(p.shardID)
 	return p.noteStore.ListNotes(ctx, accountID)
 }
 
@@ -45,6 +55,8 @@ func (p *DataProxy) ListNotes(ctx context.Context, accountID uuid.UUID) ([]store
 func (p *DataProxy) GetNote(ctx context.Context, accountID, noteID uuid.UUID) (*store.Note, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	
+	p.statsCollector.IncrementDataStoreNoteRead(p.shardID)
 	return p.noteStore.GetNote(ctx, accountID, noteID)
 }
 
@@ -52,6 +64,8 @@ func (p *DataProxy) GetNote(ctx context.Context, accountID, noteID uuid.UUID) (*
 func (p *DataProxy) CreateNote(ctx context.Context, accountID uuid.UUID, note store.Note) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	
+	p.statsCollector.IncrementDataStoreNoteCreate(p.shardID)
 	return p.noteStore.CreateNote(ctx, accountID, note)
 }
 
@@ -59,6 +73,8 @@ func (p *DataProxy) CreateNote(ctx context.Context, accountID uuid.UUID, note st
 func (p *DataProxy) UpdateNote(ctx context.Context, accountID uuid.UUID, note store.Note) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	
+	p.statsCollector.IncrementDataStoreNoteUpdate(p.shardID)
 	return p.noteStore.UpdateNote(ctx, accountID, note)
 }
 
@@ -66,6 +82,8 @@ func (p *DataProxy) UpdateNote(ctx context.Context, accountID uuid.UUID, note st
 func (p *DataProxy) DeleteNote(ctx context.Context, accountID uuid.UUID, note store.Note) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	
+	p.statsCollector.IncrementDataStoreNoteDelete(p.shardID)
 	return p.noteStore.DeleteNote(ctx, accountID, note)
 }
 
@@ -251,6 +269,9 @@ func (p *DataProxy) handleMethod(ctx context.Context, method string, params inte
 	case "Ready":
 		err := p.Ready(ctx)
 		return nil, err
+
+	case "ExportShardStats":
+		return p.statsCollector.CollectDataStoreStats(), nil
 
 	default:
 		return nil, fmt.Errorf("unknown method: %s", method)

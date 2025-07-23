@@ -219,3 +219,18 @@ func (p *ProxyClient) Ready(ctx context.Context) error {
 	_, err := p.makeJSONRPCRequest(ctx, "Ready", nil)
 	return err
 }
+
+// ExportShardStats retrieves data store statistics from the proxy
+func (p *ProxyClient) ExportShardStats(ctx context.Context) (*telemetry.DataStoreStats, error) {
+	result, err := p.makeJSONRPCRequest(ctx, "ExportShardStats", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var stats *telemetry.DataStoreStats
+	if err := json.Unmarshal(result, &stats); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal shard stats: %w", err)
+	}
+
+	return stats, nil
+}

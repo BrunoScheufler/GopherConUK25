@@ -18,6 +18,7 @@ type CLIApp struct {
 	statsView            *tview.TextView
 	accountsView         *tview.TextView
 	deploymentView       *tview.TextView
+	shardMetricsView     *tview.TextView
 	logView              *tview.TextView
 	accountStore         store.AccountStore
 	noteStore            store.NoteStore
@@ -76,6 +77,15 @@ func (c *CLIApp) Setup() {
 	c.deploymentView.SetTextAlign(tview.AlignLeft)
 	ApplyThemeToTextView(c.deploymentView, theme)
 
+	// Create shard metrics view (middle right pane)
+	c.shardMetricsView = tview.NewTextView()
+	c.shardMetricsView.SetBorder(true)
+	c.shardMetricsView.SetTitle(" Shard Metrics ")
+	c.shardMetricsView.SetTitleAlign(tview.AlignLeft)
+	c.shardMetricsView.SetDynamicColors(true)
+	c.shardMetricsView.SetTextAlign(tview.AlignLeft)
+	ApplyThemeToTextView(c.shardMetricsView, theme)
+
 	// Create log view (bottom pane)
 	c.logView = tview.NewTextView()
 	c.logView.SetBorder(true)
@@ -88,12 +98,23 @@ func (c *CLIApp) Setup() {
 	})
 	ApplyThemeToTextView(c.logView, theme)
 
-	// Create top horizontal layout for stats, accounts, and deployments
+	// Create top row: stats and accounts
+	topRowFlex := tview.NewFlex()
+	topRowFlex.SetDirection(tview.FlexColumn)
+	topRowFlex.AddItem(c.statsView, 0, 1, false)    // 50% of width
+	topRowFlex.AddItem(c.accountsView, 0, 1, false) // 50% of width
+
+	// Create middle row: deployments and shard metrics
+	middleRowFlex := tview.NewFlex()
+	middleRowFlex.SetDirection(tview.FlexColumn)
+	middleRowFlex.AddItem(c.deploymentView, 0, 1, false)   // 50% of width
+	middleRowFlex.AddItem(c.shardMetricsView, 0, 1, false) // 50% of width
+
+	// Create top section: combine top and middle rows
 	topFlex := tview.NewFlex()
-	topFlex.SetDirection(tview.FlexColumn)
-	topFlex.AddItem(c.statsView, 0, 1, false)      // 33% of width
-	topFlex.AddItem(c.accountsView, 0, 1, false)   // 33% of width
-	topFlex.AddItem(c.deploymentView, 0, 1, false) // 33% of width
+	topFlex.SetDirection(tview.FlexRow)
+	topFlex.AddItem(topRowFlex, 0, 1, false)    // 50% of top section
+	topFlex.AddItem(middleRowFlex, 0, 1, false) // 50% of top section
 
 	// Create main layout with 2:1 ratio (2/3 top, 1/3 bottom)
 	mainFlex := tview.NewFlex()
@@ -149,6 +170,9 @@ func (c *CLIApp) Start() error {
 
 	// Start deployment update loop
 	go c.deploymentUpdateLoop()
+
+	// Start shard metrics update loop
+	go c.shardMetricsUpdateLoop()
 
 	// Load existing logs after app starts
 	go func() {
@@ -362,9 +386,13 @@ func (c *CLIApp) formatDeployments(theme Theme) string {
 	// Current deployment
 	current := c.deploymentController.Current()
 	if current != nil {
+		proxyStats := c.getProxyStats(current.ID)
+		requestRate := c.calculateProxyRequestRate(proxyStats)
 		result.WriteString(fmt.Sprintf("%sCurrent (v%d)[-]\n", headerColor, current.ID))
 		result.WriteString(fmt.Sprintf("%sLaunched: %s%s[-]\n", 
 			labelColor, valueColor, current.LaunchedAt.Format("15:04:05")))
+		result.WriteString(fmt.Sprintf("%sRequests/sec: %s%.1f[-]\n", 
+			labelColor, valueColor, requestRate))
 	} else {
 		result.WriteString(fmt.Sprintf("%sCurrent: %sNone[-]\n", headerColor, labelColor))
 	}
@@ -374,11 +402,151 @@ func (c *CLIApp) formatDeployments(theme Theme) string {
 	// Previous deployment
 	previous := c.deploymentController.Previous()
 	if previous != nil {
+		proxyStats := c.getProxyStats(previous.ID)
+		requestRate := c.calculateProxyRequestRate(proxyStats)
 		result.WriteString(fmt.Sprintf("%sPrevious (v%d)[-]\n", headerColor, previous.ID))
 		result.WriteString(fmt.Sprintf("%sLaunched: %s%s[-]\n", 
 			labelColor, valueColor, previous.LaunchedAt.Format("15:04:05")))
+		result.WriteString(fmt.Sprintf("%sRequests/sec: %s%.1f[-]\n", 
+			labelColor, valueColor, requestRate))
 	} else {
 		result.WriteString(fmt.Sprintf("%sPrevious: %sNone[-]\n", headerColor, labelColor))
+	}
+
+	return result.String()
+}
+
+func (c *CLIApp) shardMetricsUpdateLoop() {
+	// Update shard metrics every second
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-c.ctx.Done():
+			return
+		case <-ticker.C:
+			c.updateShardMetrics()
+		}
+	}
+}
+
+func (c *CLIApp) updateShardMetrics() {
+	if c.telemetry == nil {
+		return
+	}
+
+	theme := GetTheme(c.options.Theme)
+	c.app.QueueUpdateDraw(func() {
+		c.shardMetricsView.Clear()
+		text := c.formatShardMetrics(theme)
+		c.shardMetricsView.SetText(text)
+	})
+}
+
+func (c *CLIApp) getProxyStats(proxyID int) *telemetry.ProxyStats {
+	if c.telemetry == nil || c.telemetry.StatsCollector == nil {
+		return nil
+	}
+
+	stats, err := c.telemetry.StatsCollector.CollectStats(c.ctx)
+	if err != nil {
+		return nil
+	}
+
+	if proxyStats, exists := stats.ProxyStats[proxyID]; exists {
+		return proxyStats
+	}
+	return nil
+}
+
+func (c *CLIApp) calculateProxyRequestRate(proxyStats *telemetry.ProxyStats) float64 {
+	if proxyStats == nil {
+		return 0.0
+	}
+
+	totalRequests := proxyStats.NoteListRequests + proxyStats.NoteReadRequests + 
+		proxyStats.NoteCreateRequests + proxyStats.NoteUpdateRequests + proxyStats.NoteDeleteRequests
+	
+	// Simple approximation - in a real system, you'd track this over time
+	return float64(totalRequests) / 60.0 // requests per second estimate
+}
+
+func (c *CLIApp) formatShardMetrics(theme Theme) string {
+	if c.telemetry == nil || c.telemetry.StatsCollector == nil {
+		return "No telemetry available"
+	}
+
+	dataStoreStats := c.telemetry.StatsCollector.CollectDataStoreStats()
+	if dataStoreStats == nil {
+		return "No shard stats available"
+	}
+
+	var result strings.Builder
+	
+	// Choose colors based on theme
+	var headerColor, labelColor, valueColor string
+	if theme.Name == "light" {
+		headerColor = "[navy]"
+		labelColor = "[black]"
+		valueColor = "[darkgreen]"
+	} else {
+		headerColor = "[yellow]"
+		labelColor = "[white]"
+		valueColor = "[green]"
+	}
+
+	result.WriteString(fmt.Sprintf("%sShard Statistics[-]\n\n", headerColor))
+
+	// Collect all unique shard IDs
+	shards := make(map[string]struct{})
+	for shardID := range dataStoreStats.NoteListRequests {
+		shards[shardID] = struct{}{}
+	}
+	for shardID := range dataStoreStats.NoteReadRequests {
+		shards[shardID] = struct{}{}
+	}
+	for shardID := range dataStoreStats.NoteCreateRequests {
+		shards[shardID] = struct{}{}
+	}
+	for shardID := range dataStoreStats.NoteUpdateRequests {
+		shards[shardID] = struct{}{}
+	}
+	for shardID := range dataStoreStats.NoteDeleteRequests {
+		shards[shardID] = struct{}{}
+	}
+
+	if len(shards) == 0 {
+		result.WriteString(fmt.Sprintf("%sNo shard activity[-]\n", labelColor))
+		return result.String()
+	}
+
+	for shardID := range shards {
+		result.WriteString(fmt.Sprintf("%s%s[-]\n", headerColor, shardID))
+		
+		// Get total requests
+		totalRequests := int64(0)
+		if stats, exists := dataStoreStats.NoteListRequests[shardID]; exists {
+			totalRequests += stats.TotalRequests
+		}
+		if stats, exists := dataStoreStats.NoteReadRequests[shardID]; exists {
+			totalRequests += stats.TotalRequests
+		}
+		if stats, exists := dataStoreStats.NoteCreateRequests[shardID]; exists {
+			totalRequests += stats.TotalRequests
+		}
+		if stats, exists := dataStoreStats.NoteUpdateRequests[shardID]; exists {
+			totalRequests += stats.TotalRequests
+		}
+		if stats, exists := dataStoreStats.NoteDeleteRequests[shardID]; exists {
+			totalRequests += stats.TotalRequests
+		}
+
+		// Calculate rate (simple approximation)
+		requestRate := float64(totalRequests) / 60.0
+
+		result.WriteString(fmt.Sprintf("%sTotal: %s%d[-]\n", labelColor, valueColor, totalRequests))
+		result.WriteString(fmt.Sprintf("%sRate: %s%.1f/sec[-]\n\n", labelColor, valueColor, requestRate))
 	}
 
 	return result.String()

@@ -29,6 +29,13 @@ type StatsCollector struct {
 	// Per-proxy stats
 	proxyStats map[int]*ProxyStats
 
+	// Data store stats by shard ID
+	dataStoreNoteListRequests   map[string]*RequestStats
+	dataStoreNoteReadRequests   map[string]*RequestStats
+	dataStoreNoteCreateRequests map[string]*RequestStats
+	dataStoreNoteUpdateRequests map[string]*RequestStats
+	dataStoreNoteDeleteRequests map[string]*RequestStats
+
 	// System stats
 	startTime time.Time
 
@@ -48,6 +55,19 @@ type ProxyStats struct {
 	NoteCreateRequests int64
 	NoteUpdateRequests int64
 	NoteDeleteRequests int64
+}
+
+type RequestStats struct {
+	TotalRequests int64 `json:"totalRequests"`
+	RequestsPerSec float64 `json:"requestsPerSec"`
+}
+
+type DataStoreStats struct {
+	NoteListRequests   map[string]RequestStats `json:"noteListRequests"`
+	NoteReadRequests   map[string]RequestStats `json:"noteReadRequests"`
+	NoteCreateRequests map[string]RequestStats `json:"noteCreateRequests"`
+	NoteUpdateRequests map[string]RequestStats `json:"noteUpdateRequests"`
+	NoteDeleteRequests map[string]RequestStats `json:"noteDeleteRequests"`
 }
 
 type Stats struct {
@@ -74,6 +94,11 @@ func NewStatsCollector(accountStore store.AccountStore, noteStore store.NoteStor
 		noteStore:      noteStore,
 		noteShardStats: make(map[string]*ShardStats),
 		proxyStats:     make(map[int]*ProxyStats),
+		dataStoreNoteListRequests:   make(map[string]*RequestStats),
+		dataStoreNoteReadRequests:   make(map[string]*RequestStats),
+		dataStoreNoteCreateRequests: make(map[string]*RequestStats),
+		dataStoreNoteUpdateRequests: make(map[string]*RequestStats),
+		dataStoreNoteDeleteRequests: make(map[string]*RequestStats),
 		startTime:      time.Now(),
 		ctx:            ctx,
 		cancel:         cancel,
@@ -144,6 +169,39 @@ func (sc *StatsCollector) ensureProxy(proxyID int) {
 	}
 }
 
+// Data store stats methods by shard ID
+
+func (sc *StatsCollector) IncrementDataStoreNoteList(shardID string) {
+	sc.ensureDataStoreShard(shardID, sc.dataStoreNoteListRequests)
+	atomic.AddInt64(&sc.dataStoreNoteListRequests[shardID].TotalRequests, 1)
+}
+
+func (sc *StatsCollector) IncrementDataStoreNoteRead(shardID string) {
+	sc.ensureDataStoreShard(shardID, sc.dataStoreNoteReadRequests)
+	atomic.AddInt64(&sc.dataStoreNoteReadRequests[shardID].TotalRequests, 1)
+}
+
+func (sc *StatsCollector) IncrementDataStoreNoteCreate(shardID string) {
+	sc.ensureDataStoreShard(shardID, sc.dataStoreNoteCreateRequests)
+	atomic.AddInt64(&sc.dataStoreNoteCreateRequests[shardID].TotalRequests, 1)
+}
+
+func (sc *StatsCollector) IncrementDataStoreNoteUpdate(shardID string) {
+	sc.ensureDataStoreShard(shardID, sc.dataStoreNoteUpdateRequests)
+	atomic.AddInt64(&sc.dataStoreNoteUpdateRequests[shardID].TotalRequests, 1)
+}
+
+func (sc *StatsCollector) IncrementDataStoreNoteDelete(shardID string) {
+	sc.ensureDataStoreShard(shardID, sc.dataStoreNoteDeleteRequests)
+	atomic.AddInt64(&sc.dataStoreNoteDeleteRequests[shardID].TotalRequests, 1)
+}
+
+func (sc *StatsCollector) ensureDataStoreShard(shardID string, shardMap map[string]*RequestStats) {
+	if _, exists := shardMap[shardID]; !exists {
+		shardMap[shardID] = &RequestStats{}
+	}
+}
+
 func (sc *StatsCollector) CollectStats(ctx context.Context) (*Stats, error) {
 	stats := &Stats{
 		LastUpdated:    time.Now(),
@@ -204,6 +262,59 @@ func (sc *StatsCollector) CollectStats(ctx context.Context) (*Stats, error) {
 	stats.MemoryUsage = formatBytes(m.Alloc)
 
 	return stats, nil
+}
+
+// CollectDataStoreStats returns data store statistics
+func (sc *StatsCollector) CollectDataStoreStats() *DataStoreStats {
+	dataStoreStats := &DataStoreStats{
+		NoteListRequests:   make(map[string]RequestStats),
+		NoteReadRequests:   make(map[string]RequestStats),
+		NoteCreateRequests: make(map[string]RequestStats),
+		NoteUpdateRequests: make(map[string]RequestStats),
+		NoteDeleteRequests: make(map[string]RequestStats),
+	}
+
+	// Copy note list requests
+	for shardID, stats := range sc.dataStoreNoteListRequests {
+		dataStoreStats.NoteListRequests[shardID] = RequestStats{
+			TotalRequests:  atomic.LoadInt64(&stats.TotalRequests),
+			RequestsPerSec: stats.RequestsPerSec, // This would be calculated by rate calculation
+		}
+	}
+
+	// Copy note read requests
+	for shardID, stats := range sc.dataStoreNoteReadRequests {
+		dataStoreStats.NoteReadRequests[shardID] = RequestStats{
+			TotalRequests:  atomic.LoadInt64(&stats.TotalRequests),
+			RequestsPerSec: stats.RequestsPerSec,
+		}
+	}
+
+	// Copy note create requests
+	for shardID, stats := range sc.dataStoreNoteCreateRequests {
+		dataStoreStats.NoteCreateRequests[shardID] = RequestStats{
+			TotalRequests:  atomic.LoadInt64(&stats.TotalRequests),
+			RequestsPerSec: stats.RequestsPerSec,
+		}
+	}
+
+	// Copy note update requests
+	for shardID, stats := range sc.dataStoreNoteUpdateRequests {
+		dataStoreStats.NoteUpdateRequests[shardID] = RequestStats{
+			TotalRequests:  atomic.LoadInt64(&stats.TotalRequests),
+			RequestsPerSec: stats.RequestsPerSec,
+		}
+	}
+
+	// Copy note delete requests
+	for shardID, stats := range sc.dataStoreNoteDeleteRequests {
+		dataStoreStats.NoteDeleteRequests[shardID] = RequestStats{
+			TotalRequests:  atomic.LoadInt64(&stats.TotalRequests),
+			RequestsPerSec: stats.RequestsPerSec,
+		}
+	}
+
+	return dataStoreStats
 }
 
 // Stop gracefully shuts down the stats collector

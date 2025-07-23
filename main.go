@@ -206,6 +206,7 @@ func initializeApplication(config Config) (*ApplicationComponents, error) {
 
 	tel := setupTelemetry(accountStore, noteStore, config.CLIMode)
 	setTelemetryOnDeploymentController(deploymentController, tel)
+	deploymentController.StartInstrument()
 	httpServer := createHTTPServer(accountStore, noteStore, tel, port)
 	simulator := createSimulator(config, tel, port)
 

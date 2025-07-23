@@ -297,3 +297,88 @@ func (dc *DeploymentController) SetTelemetry(tel *telemetry.Telemetry) {
 		}
 	}
 }
+
+const InstrumentInterval = 2 * time.Second
+
+// StartInstrument begins collecting stats from proxy servers every 2 seconds
+func (dc *DeploymentController) StartInstrument() {
+	go func() {
+		ticker := time.NewTicker(InstrumentInterval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				dc.collectProxyStats()
+			}
+		}
+	}()
+}
+
+// collectProxyStats collects statistics from current and previous proxies
+func (dc *DeploymentController) collectProxyStats() {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	dc.mu.RLock()
+	current := dc.current
+	previous := dc.previous
+	telemetry := dc.telemetry
+	dc.mu.RUnlock()
+
+	if telemetry == nil || telemetry.StatsCollector == nil {
+		return
+	}
+
+	// Collect stats from current proxy
+	if current != nil {
+		if stats, err := current.ProxyClient.ExportShardStats(ctx); err == nil {
+			dc.ingestDataStoreStats(stats, telemetry.StatsCollector)
+		}
+	}
+
+	// Collect stats from previous proxy
+	if previous != nil {
+		if stats, err := previous.ProxyClient.ExportShardStats(ctx); err == nil {
+			dc.ingestDataStoreStats(stats, telemetry.StatsCollector)
+		}
+	}
+}
+
+// ingestDataStoreStats ingests the stats from proxy into the local stats collector
+func (dc *DeploymentController) ingestDataStoreStats(stats *telemetry.DataStoreStats, localCollector *telemetry.StatsCollector) {
+	// Ingest note list requests
+	for shardID, reqStats := range stats.NoteListRequests {
+		for i := int64(0); i < reqStats.TotalRequests; i++ {
+			localCollector.IncrementDataStoreNoteList(shardID)
+		}
+	}
+
+	// Ingest note read requests
+	for shardID, reqStats := range stats.NoteReadRequests {
+		for i := int64(0); i < reqStats.TotalRequests; i++ {
+			localCollector.IncrementDataStoreNoteRead(shardID)
+		}
+	}
+
+	// Ingest note create requests
+	for shardID, reqStats := range stats.NoteCreateRequests {
+		for i := int64(0); i < reqStats.TotalRequests; i++ {
+			localCollector.IncrementDataStoreNoteCreate(shardID)
+		}
+	}
+
+	// Ingest note update requests
+	for shardID, reqStats := range stats.NoteUpdateRequests {
+		for i := int64(0); i < reqStats.TotalRequests; i++ {
+			localCollector.IncrementDataStoreNoteUpdate(shardID)
+		}
+	}
+
+	// Ingest note delete requests
+	for shardID, reqStats := range stats.NoteDeleteRequests {
+		for i := int64(0); i < reqStats.TotalRequests; i++ {
+			localCollector.IncrementDataStoreNoteDelete(shardID)
+		}
+	}
+}
