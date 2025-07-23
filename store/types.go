@@ -22,6 +22,7 @@ type Note struct {
 	ID        uuid.UUID `json:"id"`
 	Creator   uuid.UUID `json:"creator"`
 	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 	Content   string    `json:"content"`
 }
 

@@ -85,7 +85,7 @@ type sqliteNoteStore struct {
 }
 
 func (s sqliteNoteStore) ListNotes(ctx context.Context, accountID uuid.UUID) ([]Note, error) {
-	query := `SELECT id, creator, created_at, content FROM notes WHERE creator = ?`
+	query := `SELECT id, creator, created_at, updated_at, content FROM notes WHERE creator = ?`
 	rows, err := s.db.QueryContext(ctx, query, accountID.String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to query notes: %w", err)
@@ -96,7 +96,8 @@ func (s sqliteNoteStore) ListNotes(ctx context.Context, accountID uuid.UUID) ([]
 	for rows.Next() {
 		var note Note
 		var idStr, creatorStr string
-		err := rows.Scan(&idStr, &creatorStr, &note.CreatedAt, &note.Content)
+		var createdAtMillis, updatedAtMillis int64
+		err := rows.Scan(&idStr, &creatorStr, &createdAtMillis, &updatedAtMillis, &note.Content)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan note: %w", err)
 		}
@@ -111,6 +112,9 @@ func (s sqliteNoteStore) ListNotes(ctx context.Context, accountID uuid.UUID) ([]
 			return nil, fmt.Errorf("failed to parse creator ID: %w", err)
 		}
 
+		note.CreatedAt = time.UnixMilli(createdAtMillis)
+		note.UpdatedAt = time.UnixMilli(updatedAtMillis)
+
 		notes = append(notes, note)
 	}
 
@@ -122,12 +126,13 @@ func (s sqliteNoteStore) ListNotes(ctx context.Context, accountID uuid.UUID) ([]
 }
 
 func (s sqliteNoteStore) GetNote(ctx context.Context, accountID, noteID uuid.UUID) (*Note, error) {
-	query := `SELECT id, creator, created_at, content FROM notes WHERE id = ? AND creator = ?`
+	query := `SELECT id, creator, created_at, updated_at, content FROM notes WHERE id = ? AND creator = ?`
 	row := s.db.QueryRowContext(ctx, query, noteID.String(), accountID.String())
 
 	var note Note
 	var idStr, creatorStr string
-	err := row.Scan(&idStr, &creatorStr, &note.CreatedAt, &note.Content)
+	var createdAtMillis, updatedAtMillis int64
+	err := row.Scan(&idStr, &creatorStr, &createdAtMillis, &updatedAtMillis, &note.Content)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -145,12 +150,15 @@ func (s sqliteNoteStore) GetNote(ctx context.Context, accountID, noteID uuid.UUI
 		return nil, fmt.Errorf("failed to parse creator ID: %w", err)
 	}
 
+	note.CreatedAt = time.UnixMilli(createdAtMillis)
+	note.UpdatedAt = time.UnixMilli(updatedAtMillis)
+
 	return &note, nil
 }
 
 func (s sqliteNoteStore) CreateNote(ctx context.Context, accountID uuid.UUID, note Note) error {
-	query := `INSERT INTO notes (id, creator, created_at, content) VALUES (?, ?, ?, ?)`
-	_, err := s.db.ExecContext(ctx, query, note.ID.String(), accountID.String(), note.CreatedAt, note.Content)
+	query := `INSERT INTO notes (id, creator, created_at, updated_at, content) VALUES (?, ?, ?, ?, ?)`
+	_, err := s.db.ExecContext(ctx, query, note.ID.String(), accountID.String(), note.CreatedAt.UnixMilli(), note.UpdatedAt.UnixMilli(), note.Content)
 	if err != nil {
 		return fmt.Errorf("failed to create note: %w", err)
 	}
@@ -158,8 +166,8 @@ func (s sqliteNoteStore) CreateNote(ctx context.Context, accountID uuid.UUID, no
 }
 
 func (s sqliteNoteStore) UpdateNote(ctx context.Context, accountID uuid.UUID, note Note) error {
-	query := `UPDATE notes SET content = ? WHERE id = ? AND creator = ?`
-	result, err := s.db.ExecContext(ctx, query, note.Content, note.ID.String(), accountID.String())
+	query := `UPDATE notes SET content = ?, updated_at = ? WHERE id = ? AND creator = ?`
+	result, err := s.db.ExecContext(ctx, query, note.Content, note.UpdatedAt.UnixMilli(), note.ID.String(), accountID.String())
 	if err != nil {
 		return fmt.Errorf("failed to update note: %w", err)
 	}
@@ -271,7 +279,8 @@ func createNotesTable(db *sql.DB) error {
 	CREATE TABLE IF NOT EXISTS notes (
 		id TEXT PRIMARY KEY,
 		creator TEXT NOT NULL,
-		created_at DATETIME NOT NULL,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL,
 		content TEXT NOT NULL
 	);`
 

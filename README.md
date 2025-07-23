@@ -5,6 +5,9 @@
 
 ## Prerequisites
 
+> [!NOTE]  
+> Most instructions are for macOS and should work on Linux. If you are using Windows, please adapt the commands accordingly or use WSL. Unfortunately, I cannot provide one-on-one support if you are using Windows.
+
 - [ ] [Install Go](https://go.dev/doc/install) v1.24.5 (the latest version)
 - [ ] Clone this repository
 
@@ -20,9 +23,7 @@ go run . --cli
 
 This should bring up a terminal UI. If it doesn't work, please check every step again and [create an issue](https://github.com/BrunoScheufler/GopherConUK25/issues/new) otherwise.
 
-## Hands-on Exercise
-
-### Intro
+## Intro
 
 This repository contains the code for _Notely_, an example application we'll use to learn about different migration strategies in Go.
 
@@ -39,6 +40,32 @@ Core components include
 - **API**: A REST API that allows users to manage their notes ([see routes](./restapi/server.go)).
 - **Data Proxy**: A decoupled service mediating data store access. **This is what we are working on today!**
 - **Data Store**: A data store implementation. This is [using SQLite](./store/sqlite.go).
+
+### Data format
+
+We will be working with notes. Each note has the following structure:
+
+```go
+type Note struct {
+ ID        uuid.UUID `json:"id"`
+ Creator   uuid.UUID `json:"creator"`
+ CreatedAt time.Time `json:"createdAt"`
+ UpdatedAt time.Time `json:"updatedAt"`
+ Content   string    `json:"content"`
+}
+```
+
+### Running the application
+
+When started, the application will simulate user activity by generating random notes. In case you want to perform manual checks, you can interact with the application using the CLI or a REST client like [Postman](https://www.postman.com/) or [Insomnia](https://insomnia.rest/).
+
+Interesting routes to check include
+
+- `GET /accounts`: List all accounts
+- `GET /accounts/{accountID}/notes`: List all notes for a specific account`
+- `GET /accounts/{accountID}/notes/{noteID}`: Get a specific note for an account
+
+## Hands-on Exercise
 
 ### Task 1: Migrate data from legacy data store
 
