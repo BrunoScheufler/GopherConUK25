@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/brunoscheufler/gopherconuk25/cli"
+	"github.com/brunoscheufler/gopherconuk25/proxy"
 	"github.com/brunoscheufler/gopherconuk25/restapi"
 	"github.com/brunoscheufler/gopherconuk25/store"
 	"github.com/brunoscheufler/gopherconuk25/telemetry"
@@ -40,6 +41,10 @@ type Config struct {
 	Theme   string
 	Port    string
 	
+	// Proxy configuration
+	ProxyMode bool
+	ProxyPort int
+	
 	// Load generator configuration
 	EnableLoadGen   bool
 	AccountCount    int
@@ -53,6 +58,10 @@ func main() {
 	theme := flag.String("theme", "dark", "Theme for CLI mode (dark or light)")
 	port := flag.String("port", DefaultPort, "Port to run the HTTP server on")
 	
+	// Proxy flags
+	proxyMode := flag.Bool("proxy", false, "Run as data proxy")
+	proxyPort := flag.Int("proxy-port", 0, "Port for data proxy (required with --proxy)")
+	
 	// Load generator flags
 	enableLoadGen := flag.Bool("gen", false, "Enable load generator")
 	accountCount := flag.Int("concurrency", 5, "Number of accounts for load generator")
@@ -65,6 +74,8 @@ func main() {
 		CLIMode:         *cliMode,
 		Theme:           *theme,
 		Port:            *port,
+		ProxyMode:       *proxyMode,
+		ProxyPort:       *proxyPort,
 		EnableLoadGen:   *enableLoadGen,
 		AccountCount:    *accountCount,
 		NotesPerAccount: *notesPerAccount,
@@ -194,6 +205,14 @@ func initializeApplication(config Config) (*ApplicationComponents, error) {
 }
 
 func Run(config Config) error {
+	// Handle proxy mode first
+	if config.ProxyMode {
+		if config.ProxyPort == 0 {
+			return fmt.Errorf("--proxy-port is required when using --proxy")
+		}
+		return runDataProxy(config.ProxyPort)
+	}
+
 	components, err := initializeApplication(config)
 	if err != nil {
 		return err
@@ -209,6 +228,31 @@ func Run(config Config) error {
 
 	// Otherwise run the HTTP server only
 	return runHTTPServer(components.HTTPServer, components.Simulator, components.Telemetry)
+}
+
+// runDataProxy starts a data proxy server on the specified port
+func runDataProxy(port int) error {
+	// Create context that cancels on signals
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Handle shutdown signals
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		<-sigChan
+		cancel()
+	}()
+
+	// Create data proxy with notes shard
+	dataProxy, err := proxy.NewDataProxy(port, store.NoteShard1)
+	if err != nil {
+		return fmt.Errorf("failed to create data proxy: %w", err)
+	}
+
+	// Run the proxy server
+	return dataProxy.Run(ctx)
 }
 
 func runWithCLI(httpServer *http.Server, accountStore store.AccountStore, noteStore store.NoteStore, tel *telemetry.Telemetry, options cli.CLIOptions, simulator *Simulator) error {
