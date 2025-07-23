@@ -36,6 +36,9 @@ type StatsCollector struct {
 	dataStoreNoteUpdateRequests map[string]*RequestStats
 	dataStoreNoteDeleteRequests map[string]*RequestStats
 
+	// Proxy contention counter
+	proxyContentionCount int64
+
 	// System stats
 	startTime time.Time
 
@@ -81,6 +84,7 @@ type Stats struct {
 	NoteWritePerSec      int64
 	NoteShardStats       map[string]*ShardStats
 	ProxyStats           map[int]*ProxyStats
+	ProxyContentionCount int64
 	Uptime               time.Duration
 	GoRoutines           int
 	MemoryUsage          string
@@ -196,6 +200,10 @@ func (sc *StatsCollector) IncrementDataStoreNoteDelete(shardID string) {
 	atomic.AddInt64(&sc.dataStoreNoteDeleteRequests[shardID].TotalRequests, 1)
 }
 
+func (sc *StatsCollector) IncrementProxyContention() {
+	atomic.AddInt64(&sc.proxyContentionCount, 1)
+}
+
 func (sc *StatsCollector) ensureDataStoreShard(shardID string, shardMap map[string]*RequestStats) {
 	if _, exists := shardMap[shardID]; !exists {
 		shardMap[shardID] = &RequestStats{}
@@ -255,6 +263,9 @@ func (sc *StatsCollector) CollectStats(ctx context.Context) (*Stats, error) {
 			NoteDeleteRequests: atomic.LoadInt64(&proxyStats.NoteDeleteRequests),
 		}
 	}
+
+	// Proxy contention stats
+	stats.ProxyContentionCount = atomic.LoadInt64(&sc.proxyContentionCount)
 
 	// Memory stats
 	var m runtime.MemStats
