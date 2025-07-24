@@ -367,18 +367,25 @@ func (c *CLIApp) formatDeployments(theme Theme) string {
 	var result strings.Builder
 	
 	// Choose colors based on theme
-	var headerColor, statusColor, labelColor, valueColor string
+	var headerColor, statusColor, labelColor, valueColor, successColor, errorColor string
 	if theme.Name == "light" {
 		headerColor = "[navy]"
 		statusColor = "[teal]"
 		labelColor = "[black]"
 		valueColor = "[darkgreen]"
+		successColor = "[darkgreen]"
+		errorColor = "[darkred]"
 	} else {
 		headerColor = "[yellow]"
 		statusColor = "[aqua]"
 		labelColor = "[white]"
 		valueColor = "[green]"
+		successColor = "[green]"
+		errorColor = "[red]"
 	}
+
+	// Get stats to show proxy metrics for each deployment
+	stats := c.telemetry.GetStatsCollector().Export()
 
 	// Deployment status
 	status := c.deploymentController.Status()
@@ -391,6 +398,9 @@ func (c *CLIApp) formatDeployments(theme Theme) string {
 		result.WriteString(fmt.Sprintf("%sCurrent (v%d)[-]\n", headerColor, current.ID))
 		result.WriteString(fmt.Sprintf("%sLaunched: %s%s[-]\n", 
 			labelColor, valueColor, current.LaunchedAt.Format("15:04:05")))
+		
+		// Add proxy stats for current deployment
+		c.formatProxyStatsForVersion(&result, current.ID, stats, labelColor, valueColor, successColor, errorColor)
 	} else {
 		result.WriteString(fmt.Sprintf("%sCurrent: %sNone[-]\n", headerColor, labelColor))
 	}
@@ -403,11 +413,45 @@ func (c *CLIApp) formatDeployments(theme Theme) string {
 		result.WriteString(fmt.Sprintf("%sPrevious (v%d)[-]\n", headerColor, previous.ID))
 		result.WriteString(fmt.Sprintf("%sLaunched: %s%s[-]\n", 
 			labelColor, valueColor, previous.LaunchedAt.Format("15:04:05")))
+		
+		// Add proxy stats for previous deployment
+		c.formatProxyStatsForVersion(&result, previous.ID, stats, labelColor, valueColor, successColor, errorColor)
 	} else {
 		result.WriteString(fmt.Sprintf("%sPrevious: %sNone[-]\n", headerColor, labelColor))
 	}
 
 	return result.String()
+}
+
+// formatProxyStatsForVersion adds proxy statistics for a specific deployment version
+func (c *CLIApp) formatProxyStatsForVersion(result *strings.Builder, proxyID int, stats telemetry.Stats, labelColor, valueColor, successColor, errorColor string) {
+	// Find proxy stats for this specific proxy ID
+	found := false
+	for _, stat := range stats.ProxyAccess {
+		if stat.ProxyID == proxyID {
+			if !found {
+				result.WriteString(fmt.Sprintf("  %sProxy Access:[-]\n", labelColor))
+				found = true
+			}
+			
+			statusColor := successColor
+			statusIcon := "✓"
+			if !stat.Success {
+				statusColor = errorColor
+				statusIcon = "✗"
+			}
+			
+			result.WriteString(fmt.Sprintf("    %s%s %s%s[-] %sTotal: %s%d[-] %sRPM: %s%d[-] %sP95: %s%dms[-]\n",
+				labelColor, stat.Operation, statusColor, statusIcon,
+				labelColor, valueColor, stat.Metrics.TotalCount,
+				labelColor, valueColor, stat.Metrics.RequestsPerMin,
+				labelColor, valueColor, stat.Metrics.DurationP95))
+		}
+	}
+	
+	if !found {
+		result.WriteString(fmt.Sprintf("  %sProxy Access: No activity[-]\n", labelColor))
+	}
 }
 
 func (c *CLIApp) shardMetricsUpdateLoop() {
