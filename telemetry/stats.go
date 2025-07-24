@@ -181,14 +181,29 @@ func (sc *inMemoryStatsCollector) Export() Stats {
 	}
 	
 	for k, v := range sc.stats.APIRequests {
+		// Deep copy the currentDurations slice
+		durationsCopy := make([]int, len(v.Metrics.currentDurations))
+		copy(durationsCopy, v.Metrics.currentDurations)
+		
+		v.Metrics.currentDurations = durationsCopy
 		exported.APIRequests[k] = v
 	}
 	
 	for k, v := range sc.stats.ProxyAccess {
+		// Deep copy the currentDurations slice
+		durationsCopy := make([]int, len(v.Metrics.currentDurations))
+		copy(durationsCopy, v.Metrics.currentDurations)
+		
+		v.Metrics.currentDurations = durationsCopy
 		exported.ProxyAccess[k] = v
 	}
 	
 	for k, v := range sc.stats.DataStoreAccess {
+		// Deep copy the currentDurations slice
+		durationsCopy := make([]int, len(v.Metrics.currentDurations))
+		copy(durationsCopy, v.Metrics.currentDurations)
+		
+		v.Metrics.currentDurations = durationsCopy
 		exported.DataStoreAccess[k] = v
 	}
 	
