@@ -199,14 +199,14 @@ func initializeApplication(config Config) (*ApplicationComponents, error) {
 	}
 
 	deploymentController.StartInstrument()
-	
+
 	appConfig := &AppConfig{
 		AccountStore:         accountStore,
 		NoteStore:            noteStore,
 		DeploymentController: deploymentController,
 		Telemetry:            tel,
 	}
-	
+
 	httpServer := createHTTPServer(appConfig, port)
 	simulator := createSimulator(config, tel, port)
 

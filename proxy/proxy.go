@@ -58,7 +58,8 @@ func (p *DataProxy) ListNotes(ctx context.Context, accountID uuid.UUID) ([]store
 	
 	start := time.Now()
 	result, err := p.noteStore.ListNotes(ctx, accountID)
-	p.statsCollector.TrackDataStoreAccess("ListNotes", time.Since(start), p.shardID, err == nil)
+	// Track metrics, ignoring errors to avoid disrupting main operation
+	_ = p.statsCollector.TrackDataStoreAccess("ListNotes", time.Since(start), p.shardID, err == nil)
 	return result, err
 }
 
@@ -69,7 +70,8 @@ func (p *DataProxy) GetNote(ctx context.Context, accountID, noteID uuid.UUID) (*
 	
 	start := time.Now()
 	result, err := p.noteStore.GetNote(ctx, accountID, noteID)
-	p.statsCollector.TrackDataStoreAccess("GetNote", time.Since(start), p.shardID, err == nil)
+	// Track metrics, ignoring errors to avoid disrupting main operation
+	_ = p.statsCollector.TrackDataStoreAccess("GetNote", time.Since(start), p.shardID, err == nil)
 	return result, err
 }
 
@@ -80,7 +82,8 @@ func (p *DataProxy) CreateNote(ctx context.Context, accountID uuid.UUID, note st
 	
 	start := time.Now()
 	err := p.noteStore.CreateNote(ctx, accountID, note)
-	p.statsCollector.TrackDataStoreAccess("CreateNote", time.Since(start), p.shardID, err == nil)
+	// Track metrics, ignoring errors to avoid disrupting main operation
+	_ = p.statsCollector.TrackDataStoreAccess("CreateNote", time.Since(start), p.shardID, err == nil)
 	return err
 }
 
@@ -91,7 +94,8 @@ func (p *DataProxy) UpdateNote(ctx context.Context, accountID uuid.UUID, note st
 	
 	start := time.Now()
 	err := p.noteStore.UpdateNote(ctx, accountID, note)
-	p.statsCollector.TrackDataStoreAccess("UpdateNote", time.Since(start), p.shardID, err == nil)
+	// Track metrics, ignoring errors to avoid disrupting main operation
+	_ = p.statsCollector.TrackDataStoreAccess("UpdateNote", time.Since(start), p.shardID, err == nil)
 	return err
 }
 
@@ -102,7 +106,8 @@ func (p *DataProxy) DeleteNote(ctx context.Context, accountID uuid.UUID, note st
 	
 	start := time.Now()
 	err := p.noteStore.DeleteNote(ctx, accountID, note)
-	p.statsCollector.TrackDataStoreAccess("DeleteNote", time.Since(start), p.shardID, err == nil)
+	// Track metrics, ignoring errors to avoid disrupting main operation
+	_ = p.statsCollector.TrackDataStoreAccess("DeleteNote", time.Since(start), p.shardID, err == nil)
 	return err
 }
 

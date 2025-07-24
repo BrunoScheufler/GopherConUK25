@@ -16,9 +16,9 @@ const (
 
 // StatsCollector defines the interface for collecting metrics
 type StatsCollector interface {
-	TrackAPIRequest(method string, path string, duration time.Duration, responseStatusCode int)
-	TrackProxyAccess(operation string, duration time.Duration, proxyID int, success bool)
-	TrackDataStoreAccess(operation string, duration time.Duration, storeID string, success bool)
+	TrackAPIRequest(method string, path string, duration time.Duration, responseStatusCode int) error
+	TrackProxyAccess(operation string, duration time.Duration, proxyID int, success bool) error
+	TrackDataStoreAccess(operation string, duration time.Duration, storeID string, success bool) error
 	Export() Stats
 	Import(stats Stats)
 	Stop() // Gracefully shut down the stats collector
@@ -91,82 +91,112 @@ func NewStatsCollector() StatsCollector {
 	return collector
 }
 
-// TrackAPIRequest tracks API request metrics
-func (sc *inMemoryStatsCollector) TrackAPIRequest(method string, path string, duration time.Duration, responseStatusCode int) {
-	key := method + "-" + path + "-" + strconv.Itoa(responseStatusCode)
-	durationMs := int(duration.Milliseconds())
+// trackMetric provides common tracking logic for all metric types
+func (sc *inMemoryStatsCollector) trackMetric(keyGen func() string, durationMs int, updateFn func(key string)) error {
+	// Check if context is cancelled first
+	select {
+	case <-sc.ctx.Done():
+		return sc.ctx.Err()
+	default:
+	}
+	
+	key := keyGen()
 	
 	sc.mutex.Lock()
 	defer sc.mutex.Unlock()
 	
-	if existing, exists := sc.stats.APIRequests[key]; exists {
-		existing.Metrics.TotalCount++
-		existing.Metrics.currentCount++
-		existing.Metrics.currentDurations = append(existing.Metrics.currentDurations, durationMs)
-	} else {
-		sc.stats.APIRequests[key] = &APIStats{
-			Method: method,
-			Route:  path,
-			Status: responseStatusCode,
-			Metrics: RequestMetrics{
-				TotalCount:       1,
-				currentCount:     1,
-				currentDurations: []int{durationMs},
-			},
-		}
-	}
+	updateFn(key)
+	return nil
+}
+
+// TrackAPIRequest tracks API request metrics
+func (sc *inMemoryStatsCollector) TrackAPIRequest(method string, path string, duration time.Duration, responseStatusCode int) error {
+	durationMs := int(duration.Milliseconds())
+	
+	return sc.trackMetric(
+		func() string {
+			return method + "-" + path + "-" + strconv.Itoa(responseStatusCode)
+		},
+		durationMs,
+		func(key string) {
+			if existing, exists := sc.stats.APIRequests[key]; exists {
+				existing.Metrics.TotalCount++
+				existing.Metrics.currentCount++
+				existing.Metrics.currentDurations = append(existing.Metrics.currentDurations, durationMs)
+			} else {
+				sc.stats.APIRequests[key] = &APIStats{
+					Method: method,
+					Route:  path,
+					Status: responseStatusCode,
+					Metrics: RequestMetrics{
+						TotalCount:       1,
+						currentCount:     1,
+						currentDurations: []int{durationMs},
+					},
+				}
+			}
+		},
+	)
 }
 
 // TrackProxyAccess tracks proxy access metrics
-func (sc *inMemoryStatsCollector) TrackProxyAccess(operation string, duration time.Duration, proxyID int, success bool) {
-	key := operation + "-" + boolToString(success) + "-" + strconv.Itoa(proxyID)
+func (sc *inMemoryStatsCollector) TrackProxyAccess(operation string, duration time.Duration, proxyID int, success bool) error {
 	durationMs := int(duration.Milliseconds())
 	
-	sc.mutex.Lock()
-	defer sc.mutex.Unlock()
-	
-	if existing, exists := sc.stats.ProxyAccess[key]; exists {
-		existing.Metrics.TotalCount++
-		existing.Metrics.currentCount++
-		existing.Metrics.currentDurations = append(existing.Metrics.currentDurations, durationMs)
-	} else {
-		sc.stats.ProxyAccess[key] = &ProxyStats{
-			ProxyID:   proxyID,
-			Operation: operation,
-			Success:   success,
-			Metrics: RequestMetrics{
-				TotalCount:       1,
-				currentCount:     1,
-				currentDurations: []int{durationMs},
-			},
-		}
-	}
+	return sc.trackMetric(
+		func() string {
+			return operation + "-" + strconv.FormatBool(success) + "-" + strconv.Itoa(proxyID)
+		},
+		durationMs,
+		func(key string) {
+			if existing, exists := sc.stats.ProxyAccess[key]; exists {
+				existing.Metrics.TotalCount++
+				existing.Metrics.currentCount++
+				existing.Metrics.currentDurations = append(existing.Metrics.currentDurations, durationMs)
+			} else {
+				sc.stats.ProxyAccess[key] = &ProxyStats{
+					ProxyID:   proxyID,
+					Operation: operation,
+					Success:   success,
+					Metrics: RequestMetrics{
+						TotalCount:       1,
+						currentCount:     1,
+						currentDurations: []int{durationMs},
+					},
+				}
+			}
+		},
+	)
 }
 
 // TrackDataStoreAccess tracks data store access metrics
-func (sc *inMemoryStatsCollector) TrackDataStoreAccess(operation string, duration time.Duration, storeID string, success bool) {
-	key := operation + "-" + boolToString(success) + "-" + storeID
+func (sc *inMemoryStatsCollector) TrackDataStoreAccess(operation string, duration time.Duration, storeID string, success bool) error {
 	durationMs := int(duration.Milliseconds())
 	
-	sc.mutex.Lock()
-	defer sc.mutex.Unlock()
-	
-	if existing, exists := sc.stats.DataStoreAccess[key]; exists {
-		existing.Metrics.TotalCount++
-		existing.Metrics.currentCount++
-		existing.Metrics.currentDurations = append(existing.Metrics.currentDurations, durationMs)
-	} else {
-		sc.stats.DataStoreAccess[key] = &DataStoreStats{
-			StoreID:   storeID,
-			Operation: operation,
-			Success:   success,
-			Metrics: RequestMetrics{
-				TotalCount:       1,
-				currentCount:     1,
-				currentDurations: []int{durationMs},
-			},
-		}
-	}
+	return sc.trackMetric(
+		func() string {
+			return operation + "-" + strconv.FormatBool(success) + "-" + storeID
+		},
+		durationMs,
+		func(key string) {
+			if existing, exists := sc.stats.DataStoreAccess[key]; exists {
+				existing.Metrics.TotalCount++
+				existing.Metrics.currentCount++
+				existing.Metrics.currentDurations = append(existing.Metrics.currentDurations, durationMs)
+			} else {
+				sc.stats.DataStoreAccess[key] = &DataStoreStats{
+					StoreID:   storeID,
+					Operation: operation,
+					Success:   success,
+					Metrics: RequestMetrics{
+						TotalCount:       1,
+						currentCount:     1,
+						currentDurations: []int{durationMs},
+					},
+				}
+			}
+		},
+	)
 }
 
 // Export returns a copy of current stats excluding internal fields
@@ -342,13 +372,6 @@ func calculateP95(durations []int) int {
 	return sorted[index]
 }
 
-// boolToString converts bool to string for key generation
-func boolToString(b bool) string {
-	if b {
-		return "true"
-	}
-	return "false"
-}
 
 // Stop gracefully shuts down the stats collector
 func (sc *inMemoryStatsCollector) Stop() {

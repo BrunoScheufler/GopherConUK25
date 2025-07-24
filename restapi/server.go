@@ -90,12 +90,15 @@ func (s *Server) LoggingMiddleware(next http.Handler) http.Handler {
 		duration := time.Since(start)
 		
 		// Track API request metrics with the new interface
-		s.telemetry.GetStatsCollector().TrackAPIRequest(
+		if err := s.telemetry.GetStatsCollector().TrackAPIRequest(
 			r.Method,
 			r.URL.Path,
 			duration,
 			rw.status,
-		)
+		); err != nil {
+			// Log the error but don't fail the request
+			s.logger.Info("Failed to track API request metric", "error", err.Error())
+		}
 		
 		s.logger.Info("HTTP request",
 			"method", r.Method,
