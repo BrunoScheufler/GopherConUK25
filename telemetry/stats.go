@@ -3,12 +3,15 @@ package telemetry
 import (
 	"context"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 )
 
 const (
 	TickInterval = 5 * time.Second
+	// SecondsPerMinute converts tick interval to per-minute calculations
+	SecondsPerMinute = 60
 )
 
 // StatsCollector defines the interface for collecting metrics
@@ -90,7 +93,7 @@ func NewStatsCollector() StatsCollector {
 
 // TrackAPIRequest tracks API request metrics
 func (sc *inMemoryStatsCollector) TrackAPIRequest(method string, path string, duration time.Duration, responseStatusCode int) {
-	key := method + "-" + path + "-" + string(rune(responseStatusCode))
+	key := method + "-" + path + "-" + strconv.Itoa(responseStatusCode)
 	durationMs := int(duration.Milliseconds())
 	
 	sc.mutex.Lock()
@@ -117,7 +120,7 @@ func (sc *inMemoryStatsCollector) TrackAPIRequest(method string, path string, du
 
 // TrackProxyAccess tracks proxy access metrics
 func (sc *inMemoryStatsCollector) TrackProxyAccess(operation string, duration time.Duration, proxyID int, success bool) {
-	key := operation + "-" + boolToString(success) + "-" + string(rune(proxyID))
+	key := operation + "-" + boolToString(success) + "-" + strconv.Itoa(proxyID)
 	durationMs := int(duration.Milliseconds())
 	
 	sc.mutex.Lock()
@@ -169,12 +172,12 @@ func (sc *inMemoryStatsCollector) TrackDataStoreAccess(operation string, duratio
 	}
 }
 
-// Export returns a copy of current stats
+// Export returns a copy of current stats excluding internal fields
 func (sc *inMemoryStatsCollector) Export() Stats {
 	sc.mutex.RLock()
 	defer sc.mutex.RUnlock()
 	
-	// Deep copy the stats
+	// Copy stats excluding internal fields
 	exported := Stats{
 		APIRequests:     make(map[string]APIStats),
 		ProxyAccess:     make(map[string]ProxyStats),
@@ -182,30 +185,51 @@ func (sc *inMemoryStatsCollector) Export() Stats {
 	}
 	
 	for k, v := range sc.stats.APIRequests {
-		// Deep copy the currentDurations slice
-		durationsCopy := make([]int, len(v.Metrics.currentDurations))
-		copy(durationsCopy, v.Metrics.currentDurations)
+		// Exclude internal fields (currentCount, currentDurations)
+		exportedMetrics := RequestMetrics{
+			TotalCount:     v.Metrics.TotalCount,
+			RequestsPerMin: v.Metrics.RequestsPerMin,
+			DurationP95:    v.Metrics.DurationP95,
+		}
 		
-		v.Metrics.currentDurations = durationsCopy
-		exported.APIRequests[k] = v
+		exported.APIRequests[k] = APIStats{
+			Method:  v.Method,
+			Route:   v.Route,
+			Status:  v.Status,
+			Metrics: exportedMetrics,
+		}
 	}
 	
 	for k, v := range sc.stats.ProxyAccess {
-		// Deep copy the currentDurations slice
-		durationsCopy := make([]int, len(v.Metrics.currentDurations))
-		copy(durationsCopy, v.Metrics.currentDurations)
+		// Exclude internal fields (currentCount, currentDurations)
+		exportedMetrics := RequestMetrics{
+			TotalCount:     v.Metrics.TotalCount,
+			RequestsPerMin: v.Metrics.RequestsPerMin,
+			DurationP95:    v.Metrics.DurationP95,
+		}
 		
-		v.Metrics.currentDurations = durationsCopy
-		exported.ProxyAccess[k] = v
+		exported.ProxyAccess[k] = ProxyStats{
+			ProxyID:   v.ProxyID,
+			Operation: v.Operation,
+			Success:   v.Success,
+			Metrics:   exportedMetrics,
+		}
 	}
 	
 	for k, v := range sc.stats.DataStoreAccess {
-		// Deep copy the currentDurations slice
-		durationsCopy := make([]int, len(v.Metrics.currentDurations))
-		copy(durationsCopy, v.Metrics.currentDurations)
+		// Exclude internal fields (currentCount, currentDurations)
+		exportedMetrics := RequestMetrics{
+			TotalCount:     v.Metrics.TotalCount,
+			RequestsPerMin: v.Metrics.RequestsPerMin,
+			DurationP95:    v.Metrics.DurationP95,
+		}
 		
-		v.Metrics.currentDurations = durationsCopy
-		exported.DataStoreAccess[k] = v
+		exported.DataStoreAccess[k] = DataStoreStats{
+			StoreID:   v.StoreID,
+			Operation: v.Operation,
+			Success:   v.Success,
+			Metrics:   exportedMetrics,
+		}
 	}
 	
 	return exported
@@ -304,8 +328,9 @@ func (sc *inMemoryStatsCollector) calculateMetrics() {
 
 // calculateRPM converts count per tick interval to requests per minute
 func calculateRPM(count int) int {
-	// TickInterval is 5 seconds, so multiply by 12 to get per-minute rate
-	return count * 12
+	// Convert tick interval count to per-minute rate
+	ticksPerMinute := SecondsPerMinute / int(TickInterval.Seconds())
+	return count * ticksPerMinute
 }
 
 // calculateP95 calculates the 95th percentile of durations
