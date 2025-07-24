@@ -188,11 +188,11 @@ func NewBubbleTeaModel(appConfig *AppConfig, options CLIOptions) *Model {
 		table.WithStyles(dataStoreTableStyles),
 	)
 	
-	// Initialize progress bar
+	// Initialize progress bar with solid colors for better visibility
 	deploymentProgress := progress.New(
-		progress.WithDefaultGradient(),
 		progress.WithWidth(40),
 		progress.WithoutPercentage(),
+		progress.WithScaledGradient(string(theme.Accent), string(theme.Success)),
 	)
 	
 	// Initialize help
