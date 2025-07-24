@@ -35,7 +35,7 @@ func freePort() (int, error) {
 }
 
 // LaunchDataProxy starts a child process running a data proxy
-func LaunchDataProxy(id int) (*DataProxyProcess, error) {
+func LaunchDataProxy(id int, statsCollector *telemetry.StatsCollector) (*DataProxyProcess, error) {
 	// Get a free port for the proxy
 	port, err := freePort()
 	if err != nil {
@@ -63,7 +63,7 @@ func LaunchDataProxy(id int) (*DataProxyProcess, error) {
 
 	// Create proxy client
 	baseURL := fmt.Sprintf("http://localhost:%d", port)
-	proxyClient := NewProxyClient(id, baseURL)
+	proxyClient := NewProxyClient(id, baseURL, statsCollector)
 
 	// Create the data proxy process
 	dataProxyProcess := &DataProxyProcess{
@@ -137,3 +137,4 @@ func (dpp *DataProxyProcess) Shutdown() error {
 		return nil
 	}
 }
+

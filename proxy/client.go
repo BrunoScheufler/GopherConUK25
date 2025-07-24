@@ -25,19 +25,15 @@ type ProxyClient struct {
 }
 
 // NewProxyClient creates a new proxy client
-func NewProxyClient(id int, addr string) *ProxyClient {
+func NewProxyClient(id int, addr string, statsCollector *telemetry.StatsCollector) *ProxyClient {
 	return &ProxyClient{
 		id:      id,
 		baseURL: addr,
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
+		statsCollector: statsCollector,
 	}
-}
-
-// SetStatsCollector assigns a stats collector to track proxy usage
-func (p *ProxyClient) SetStatsCollector(statsCollector *telemetry.StatsCollector) {
-	p.statsCollector = statsCollector
 }
 
 // makeJSONRPCRequest sends a JSON RPC request to the proxy server
@@ -240,3 +236,4 @@ func (p *ProxyClient) ExportShardStats(ctx context.Context) (*telemetry.DataStor
 
 	return stats, nil
 }
+

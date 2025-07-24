@@ -101,15 +101,10 @@ func (dc *DeploymentController) Deploy() error {
 		// Initial deployment - no current proxy exists
 		dc.setStatus(StatusRolloutLaunchNew)
 
-		dataProxyProcess, err := LaunchDataProxy(1)
+		dataProxyProcess, err := LaunchDataProxy(1, dc.telemetry.StatsCollector)
 		if err != nil {
 			dc.setStatus(StatusInitial)
 			return fmt.Errorf("failed to launch initial data proxy: %w", err)
-		}
-
-		// Set stats collector if telemetry is available
-		if dc.telemetry != nil {
-			dataProxyProcess.ProxyClient.SetStatsCollector(dc.telemetry.StatsCollector)
 		}
 
 		dc.mu.Lock()
@@ -131,15 +126,10 @@ func (dc *DeploymentController) Deploy() error {
 
 	// Launch new proxy with incremented ID
 	newID := previousID + 1
-	newDataProxyProcess, err := LaunchDataProxy(newID)
+	newDataProxyProcess, err := LaunchDataProxy(newID, dc.telemetry.StatsCollector)
 	if err != nil {
 		dc.setStatus(StatusReady)
 		return fmt.Errorf("failed to launch new data proxy: %w", err)
-	}
-
-	// Set stats collector if telemetry is available
-	if dc.telemetry != nil {
-		newDataProxyProcess.ProxyClient.SetStatsCollector(dc.telemetry.StatsCollector)
 	}
 
 	// Wait for new proxy to be ready before making it current
@@ -289,24 +279,6 @@ func (dc *DeploymentController) selectProxy() *DataProxyProcess {
 	return dc.previous
 }
 
-// SetTelemetry sets the telemetry instance and updates existing proxy clients
-func (dc *DeploymentController) SetTelemetry(tel *telemetry.Telemetry) {
-	dc.mu.Lock()
-	defer dc.mu.Unlock()
-
-	dc.telemetry = tel
-
-	// Update existing proxy clients with stats collector
-	if tel != nil {
-		if dc.current != nil {
-			dc.current.ProxyClient.SetStatsCollector(tel.StatsCollector)
-		}
-		if dc.previous != nil {
-			dc.previous.ProxyClient.SetStatsCollector(tel.StatsCollector)
-		}
-	}
-}
-
 // waitForProxyReady waits for a proxy to be ready using the Ready RPC method
 func (dc *DeploymentController) waitForProxyReady(proxy *DataProxyProcess) error {
 	if proxy == nil {
@@ -416,4 +388,3 @@ func (dc *DeploymentController) ingestDataStoreStats(stats *telemetry.DataStoreS
 		}
 	}
 }
-
