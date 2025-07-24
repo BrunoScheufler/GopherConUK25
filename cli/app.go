@@ -4,6 +4,7 @@ import (
 	"github.com/brunoscheufler/gopherconuk25/proxy"
 	"github.com/brunoscheufler/gopherconuk25/store"
 	"github.com/brunoscheufler/gopherconuk25/telemetry"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // AppConfig groups common application dependencies to reduce parameter lists
@@ -27,10 +28,11 @@ func RunCLI(accountStore store.AccountStore, noteStore store.NoteStore, tel *tel
 		Telemetry:            tel,
 	}
 	
-	// Create and setup CLI app
-	cliApp := NewCLIApp(appConfig, options)
-	cliApp.Setup()
-
-	// Start the CLI
-	return cliApp.Start()
+	// Create new bubbletea model
+	model := NewBubbleTeaModel(appConfig, options)
+	
+	// Start the bubbletea program
+	program := tea.NewProgram(model, tea.WithAltScreen())
+	_, err := program.Run()
+	return err
 }
