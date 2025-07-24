@@ -81,7 +81,7 @@ func (c *CLIApp) Setup() {
 	// Create shard metrics view (middle right pane)
 	c.shardMetricsView = tview.NewTextView()
 	c.shardMetricsView.SetBorder(true)
-	c.shardMetricsView.SetTitle(" Shard Metrics ")
+	c.shardMetricsView.SetTitle(" Data store access by shard ")
 	c.shardMetricsView.SetTitleAlign(tview.AlignLeft)
 	c.shardMetricsView.SetDynamicColors(true)
 	c.shardMetricsView.SetTextAlign(tview.AlignLeft)
@@ -464,8 +464,92 @@ func (c *CLIApp) shardMetricsUpdateLoop() {
 		case <-c.ctx.Done():
 			return
 		case <-ticker.C:
+			c.updateShardMetrics()
 		}
 	}
+}
+
+func (c *CLIApp) updateShardMetrics() {
+	theme := GetTheme(c.options.Theme)
+	c.app.QueueUpdateDraw(func() {
+		c.shardMetricsView.Clear()
+		text := c.formatDataStoreAccessByShard(theme)
+		c.shardMetricsView.SetText(text)
+	})
+}
+
+func (c *CLIApp) formatDataStoreAccessByShard(theme Theme) string {
+	var result strings.Builder
+	
+	// Choose colors based on theme
+	var headerColor, labelColor, valueColor, successColor, errorColor string
+	if theme.Name == "light" {
+		headerColor = "[navy]"
+		labelColor = "[black]"
+		valueColor = "[darkgreen]"
+		successColor = "[darkgreen]"
+		errorColor = "[darkred]"
+	} else {
+		headerColor = "[yellow]"
+		labelColor = "[white]"
+		valueColor = "[green]"
+		successColor = "[green]"
+		errorColor = "[red]"
+	}
+
+	// Get stats for data store access
+	stats := c.telemetry.GetStatsCollector().Export()
+	
+	if len(stats.DataStoreAccess) == 0 {
+		waitingColor := "[grey]"
+		if theme.Name == "light" {
+			waitingColor = "[darkgray]"
+		}
+		return waitingColor + "No data store activity...[-]\n"
+	}
+
+	// Group data store stats by store ID (shard)
+	storeGroups := make(map[string][]*telemetry.DataStoreStats)
+	for _, stat := range stats.DataStoreAccess {
+		storeGroups[stat.StoreID] = append(storeGroups[stat.StoreID], stat)
+	}
+
+	// Sort store IDs for consistent display
+	var storeIDs []string
+	for id := range storeGroups {
+		storeIDs = append(storeIDs, id)
+	}
+	// Use Go's built-in sort for string slices
+	for i := 0; i < len(storeIDs); i++ {
+		for j := i + 1; j < len(storeIDs); j++ {
+			if storeIDs[i] > storeIDs[j] {
+				storeIDs[i], storeIDs[j] = storeIDs[j], storeIDs[i]
+			}
+		}
+	}
+
+	for _, storeID := range storeIDs {
+		storeStats := storeGroups[storeID]
+		result.WriteString(fmt.Sprintf("%s%s:[-]\n", headerColor, storeID))
+		
+		for _, stat := range storeStats {
+			statusColor := successColor
+			statusIcon := "✓"
+			if !stat.Success {
+				statusColor = errorColor
+				statusIcon = "✗"
+			}
+			
+			result.WriteString(fmt.Sprintf("  %s%s %s%s[-] %sTotal: %s%d[-] %sRPM: %s%d[-] %sP95: %s%dms[-]\n",
+				labelColor, stat.Operation, statusColor, statusIcon,
+				labelColor, valueColor, stat.Metrics.TotalCount,
+				labelColor, valueColor, stat.Metrics.RequestsPerMin,
+				labelColor, valueColor, stat.Metrics.DurationP95))
+		}
+		result.WriteString("\n")
+	}
+
+	return result.String()
 }
 
 
