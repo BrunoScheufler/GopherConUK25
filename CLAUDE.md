@@ -242,6 +242,148 @@ git commit -m "fix stuff and add features"  # Vague and too broad
 - **Clear history**: Git log becomes a readable story of development
 - **Collaboration**: Reduces merge conflicts in team environments
 
+### Test Assertions with Testify Require
+
+**Always prefer testify require over native Go test assertions** for better error messages and fail-fast behavior:
+
+**✅ Good - Testify Require:**
+```go
+import (
+    "testing"
+    "github.com/stretchr/testify/require"
+)
+
+func TestUserValidation(t *testing.T) {
+    user := User{ID: "123", Name: "John"}
+    
+    // Better error messages and stops on first failure
+    require.Equal(t, "123", user.ID, "Expected user ID to match")
+    require.NotEmpty(t, user.Name, "User name should not be empty")
+    require.True(t, user.IsValid(), "User should be valid")
+    
+    // Specialized assertions for common patterns
+    require.NoError(t, validateUser(user), "User validation should succeed")
+    require.NotNil(t, user.CreatedAt, "CreatedAt should be set")
+    require.Len(t, user.Permissions, 3, "Expected 3 permissions")
+}
+```
+
+**❌ Avoid - Native Go Assertions:**
+```go
+func TestUserValidation(t *testing.T) {
+    user := User{ID: "123", Name: "John"}
+    
+    // Poor error messages and continues after failures
+    if user.ID != "123" {
+        t.Errorf("Expected user ID=123, got %s", user.ID)
+    }
+    if user.Name == "" {
+        t.Errorf("User name should not be empty")
+    }
+    if !user.IsValid() {
+        t.Errorf("User should be valid")
+    }
+    
+    // Manual error checking is verbose
+    if err := validateUser(user); err != nil {
+        t.Fatalf("User validation failed: %v", err)
+    }
+}
+```
+
+**Benefits of testify require:**
+- **Better Error Messages**: Contextual failure messages with actual vs expected values
+- **Fail-Fast Behavior**: Stops test execution on first failure, preventing cascading errors
+- **Readable Assertions**: Semantic function names make test intent clearer
+- **Specialized Functions**: `NoError()`, `NotNil()`, `Len()`, `Empty()` for common patterns
+- **Consistent API**: Uniform interface across all assertion types
+- **Rich Comparisons**: Deep equality checking for complex types
+
+**Common testify require functions:**
+- `require.Equal(t, expected, actual, msg)` - Value equality
+- `require.NotEqual(t, expected, actual, msg)` - Value inequality  
+- `require.NoError(t, err, msg)` - No error occurred
+- `require.Error(t, err, msg)` - Error occurred
+- `require.True/False(t, condition, msg)` - Boolean conditions
+- `require.NotNil/Nil(t, object, msg)` - Nil checking
+- `require.Len(t, object, length, msg)` - Collection length
+- `require.Empty/NotEmpty(t, object, msg)` - Empty checking
+
+### Functional Options Pattern
+
+**Always prefer functional options over multiple constructor methods** for configurable constructors:
+
+**✅ Good - Functional Options:**
+```go
+// Define option function type
+type StatsCollectorOption func(*statsCollectorConfig)
+
+// Define configuration struct
+type statsCollectorConfig struct {
+    autoStart bool
+}
+
+// Define option functions
+func WithAutoStart(autoStart bool) StatsCollectorOption {
+    return func(config *statsCollectorConfig) {
+        config.autoStart = autoStart
+    }
+}
+
+// Single constructor with variadic options
+func NewStatsCollector(options ...StatsCollectorOption) StatsCollector {
+    // Default configuration
+    config := &statsCollectorConfig{
+        autoStart: true, // Default to auto-start for backward compatibility
+    }
+    
+    // Apply options
+    for _, option := range options {
+        option(config)
+    }
+    
+    // Use config to create collector...
+}
+
+// Usage examples
+defaultCollector := NewStatsCollector()                    // Uses defaults
+manualCollector := NewStatsCollector(WithAutoStart(false)) // Custom config
+
+// Additional examples throughout the codebase:
+tel := telemetry.New()                                      // Default telemetry
+tel := telemetry.New(telemetry.WithCLIMode(true))          // CLI mode
+tel := telemetry.New(                                       // Multiple options  
+    telemetry.WithCLIMode(true),
+    telemetry.WithLogLevel("info"),
+)
+
+server := restapi.NewServer(                                // Server configuration
+    restapi.WithAccountStore(accountStore),
+    restapi.WithNoteStore(noteStore),
+    restapi.WithTelemetry(telemetry),
+)
+```
+
+**❌ Avoid - Multiple Constructor Methods:**
+```go
+// Multiple similar constructors
+func NewStatsCollector() StatsCollector { ... }
+func NewStatsCollectorManual() StatsCollector { ... }
+func newStatsCollector(autoStart bool) StatsCollector { ... } // Internal method
+
+// Usage becomes unclear
+collector1 := NewStatsCollector()        // What are the defaults?
+collector2 := NewStatsCollectorManual()  // What's different?
+```
+
+**Benefits of functional options:**
+- **Extensible**: Easy to add new options without breaking API
+- **Backward Compatible**: Default behavior preserved when adding options
+- **Self-Documenting**: Option names make configuration intent clear
+- **Type Safe**: Compile-time validation of configuration
+- **Flexible**: Can combine multiple options in any order
+- **Clean API**: Single constructor instead of multiple methods
+
 ## Data Proxy Architecture
 
 The data proxy system decouples data stores from the API to enable zero-downtime migrations and rolling releases. This architecture is essential for the hands-on migration exercises.

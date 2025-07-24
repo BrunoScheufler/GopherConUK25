@@ -31,24 +31,77 @@ type AppConfig struct {
 	Telemetry            *telemetry.Telemetry
 }
 
-func NewServer(accountStore store.AccountStore, noteStore store.NoteStore, deploymentController *proxy.DeploymentController, tel *telemetry.Telemetry) *Server {
-	return &Server{
-		accountStore:         accountStore,
-		noteStore:            noteStore,
-		deploymentController: deploymentController,
-		telemetry:            tel,
-		logger:               tel.GetLogger(),
+// ServerOption defines a functional option for configuring Server
+type ServerOption func(*serverConfig)
+
+// serverConfig holds configuration options for Server
+type serverConfig struct {
+	accountStore         store.AccountStore
+	noteStore            store.NoteStore
+	deploymentController *proxy.DeploymentController
+	telemetry            *telemetry.Telemetry
+}
+
+// WithAccountStore configures the account store for the server
+func WithAccountStore(accountStore store.AccountStore) ServerOption {
+	return func(config *serverConfig) {
+		config.accountStore = accountStore
 	}
 }
 
-func NewServerFromConfig(appConfig *AppConfig) *Server {
-	return &Server{
-		accountStore:         appConfig.AccountStore,
-		noteStore:            appConfig.NoteStore,
-		deploymentController: appConfig.DeploymentController,
-		telemetry:            appConfig.Telemetry,
-		logger:               appConfig.Telemetry.GetLogger(),
+// WithNoteStore configures the note store for the server
+func WithNoteStore(noteStore store.NoteStore) ServerOption {
+	return func(config *serverConfig) {
+		config.noteStore = noteStore
 	}
+}
+
+// WithDeploymentController configures the deployment controller for the server
+func WithDeploymentController(deploymentController *proxy.DeploymentController) ServerOption {
+	return func(config *serverConfig) {
+		config.deploymentController = deploymentController
+	}
+}
+
+// WithTelemetry configures the telemetry instance for the server
+func WithTelemetry(tel *telemetry.Telemetry) ServerOption {
+	return func(config *serverConfig) {
+		config.telemetry = tel
+	}
+}
+
+// WithAppConfig configures the server using an AppConfig struct (convenience method)
+func WithAppConfig(appConfig *AppConfig) ServerOption {
+	return func(config *serverConfig) {
+		config.accountStore = appConfig.AccountStore
+		config.noteStore = appConfig.NoteStore
+		config.deploymentController = appConfig.DeploymentController
+		config.telemetry = appConfig.Telemetry
+	}
+}
+
+// NewServer creates a new server with functional options
+func NewServer(options ...ServerOption) *Server {
+	// Default configuration - all fields start as nil and must be set via options
+	config := &serverConfig{}
+	
+	// Apply options
+	for _, option := range options {
+		option(config)
+	}
+	
+	return &Server{
+		accountStore:         config.accountStore,
+		noteStore:            config.noteStore,
+		deploymentController: config.deploymentController,
+		telemetry:            config.telemetry,
+		logger:               config.telemetry.GetLogger(),
+	}
+}
+
+// NewServerFromConfig creates a server from AppConfig (backward compatibility)
+func NewServerFromConfig(appConfig *AppConfig) *Server {
+	return NewServer(WithAppConfig(appConfig))
 }
 
 func (s *Server) SetupRoutes(mux *http.ServeMux) {

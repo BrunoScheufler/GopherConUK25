@@ -147,7 +147,15 @@ func initializeStores(tel *telemetry.Telemetry) (store.AccountStore, store.NoteS
 
 // setupTelemetry creates and starts the telemetry system
 func setupTelemetry(cliMode bool, logLevel string) *telemetry.Telemetry {
-	tel := telemetry.New(cliMode, logLevel)
+	var options []telemetry.TelemetryOption
+	if cliMode {
+		options = append(options, telemetry.WithCLIMode(true))
+	}
+	if logLevel != "" {
+		options = append(options, telemetry.WithLogLevel(logLevel))
+	}
+	
+	tel := telemetry.New(options...)
 	tel.SetupGlobalLogger()
 	tel.Start()
 	return tel
@@ -410,12 +418,12 @@ func runServer(httpServer *http.Server, shutdownTrigger <-chan error, simulator 
 }
 
 func createHTTPServer(appConfig *AppConfig, port string) *http.Server {
-	server := restapi.NewServerFromConfig(&restapi.AppConfig{
-		AccountStore:         appConfig.AccountStore,
-		NoteStore:            appConfig.NoteStore,
-		DeploymentController: appConfig.DeploymentController,
-		Telemetry:            appConfig.Telemetry,
-	})
+	server := restapi.NewServer(
+		restapi.WithAccountStore(appConfig.AccountStore),
+		restapi.WithNoteStore(appConfig.NoteStore),
+		restapi.WithDeploymentController(appConfig.DeploymentController),
+		restapi.WithTelemetry(appConfig.Telemetry),
+	)
 	mux := http.NewServeMux()
 	server.SetupRoutes(mux)
 

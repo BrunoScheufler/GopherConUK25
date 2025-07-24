@@ -72,8 +72,33 @@ type inMemoryStatsCollector struct {
 	cancel context.CancelFunc
 }
 
-// NewStatsCollector creates a new in-memory stats collector
-func NewStatsCollector() StatsCollector {
+// StatsCollectorOption defines a functional option for configuring a StatsCollector
+type StatsCollectorOption func(*statsCollectorConfig)
+
+// statsCollectorConfig holds configuration options for StatsCollector
+type statsCollectorConfig struct {
+	autoStart bool
+}
+
+// WithAutoStart configures whether the stats collector should automatically start its ticker goroutine
+func WithAutoStart(autoStart bool) StatsCollectorOption {
+	return func(config *statsCollectorConfig) {
+		config.autoStart = autoStart
+	}
+}
+
+// NewStatsCollector creates a new in-memory stats collector with optional configuration
+func NewStatsCollector(options ...StatsCollectorOption) StatsCollector {
+	// Default configuration
+	config := &statsCollectorConfig{
+		autoStart: true, // Default to auto-start for backward compatibility
+	}
+	
+	// Apply options
+	for _, option := range options {
+		option(config)
+	}
+	
 	ctx, cancel := context.WithCancel(context.Background())
 	collector := &inMemoryStatsCollector{
 		stats: Stats{
@@ -85,8 +110,10 @@ func NewStatsCollector() StatsCollector {
 		cancel: cancel,
 	}
 	
-	// Start the ticker goroutine
-	go collector.tick()
+	// Start the ticker goroutine only if requested
+	if config.autoStart {
+		go collector.tick()
+	}
 	
 	return collector
 }

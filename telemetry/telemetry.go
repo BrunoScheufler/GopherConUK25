@@ -33,21 +33,55 @@ func parseLogLevel(level string) slog.Level {
 	}
 }
 
-// New creates a new telemetry instance
-func New(cliMode bool, logLevel string) *Telemetry {
+// TelemetryOption defines a functional option for configuring Telemetry
+type TelemetryOption func(*telemetryConfig)
+
+// telemetryConfig holds configuration options for Telemetry
+type telemetryConfig struct {
+	cliMode  bool
+	logLevel string
+}
+
+// WithCLIMode configures whether telemetry should run in CLI mode
+func WithCLIMode(cliMode bool) TelemetryOption {
+	return func(config *telemetryConfig) {
+		config.cliMode = cliMode
+	}
+}
+
+// WithLogLevel configures the log level for telemetry
+func WithLogLevel(logLevel string) TelemetryOption {
+	return func(config *telemetryConfig) {
+		config.logLevel = logLevel
+	}
+}
+
+// New creates a new telemetry instance with optional configuration
+func New(options ...TelemetryOption) *Telemetry {
+	// Default configuration
+	config := &telemetryConfig{
+		cliMode:  false, // Default to non-CLI mode
+		logLevel: "debug", // Default to debug level
+	}
+	
+	// Apply options
+	for _, option := range options {
+		option(config)
+	}
+	
 	logCapture := NewLogCapture(constants.DefaultLogBufferSize)
 	statsCollector := NewStatsCollector()
 
-	// Determine log level - default to DEBUG
+	// Determine log level
 	var level slog.Level
-	if logLevel != "" {
-		level = parseLogLevel(logLevel)
+	if config.logLevel != "" {
+		level = parseLogLevel(config.logLevel)
 	} else {
 		level = slog.LevelDebug
 	}
 
 	var logger *slog.Logger
-	if cliMode {
+	if config.cliMode {
 		// In CLI mode, send logs to the capture system with colors (tview supports ANSI)
 		handler := tint.NewHandler(logCapture, &tint.Options{
 			Level: level,
