@@ -20,7 +20,7 @@ type sqliteAccountStore struct {
 
 func (s *sqliteAccountStore) ListAccounts(ctx context.Context) ([]Account, error) {
 	query := `SELECT id, name FROM accounts`
-	
+
 	var rows *sql.Rows
 	err := util.Retry(ctx, defaultRetryConfig, func() error {
 		var queryErr error
@@ -105,7 +105,7 @@ type sqliteNoteStore struct {
 
 func (s *sqliteNoteStore) ListNotes(ctx context.Context, accountID uuid.UUID) ([]Note, error) {
 	query := `SELECT id, creator, created_at, updated_at, content FROM notes WHERE creator = ?`
-	
+
 	var rows *sql.Rows
 	err := util.Retry(ctx, defaultRetryConfig, func() error {
 		var queryErr error
@@ -152,11 +152,11 @@ func (s *sqliteNoteStore) ListNotes(ctx context.Context, accountID uuid.UUID) ([
 
 func (s *sqliteNoteStore) GetNote(ctx context.Context, accountID, noteID uuid.UUID) (*Note, error) {
 	query := `SELECT id, creator, created_at, updated_at, content FROM notes WHERE id = ? AND creator = ?`
-	
+
 	var note Note
 	var idStr, creatorStr string
 	var createdAtMillis, updatedAtMillis int64
-	
+
 	err := util.Retry(ctx, defaultRetryConfig, func() error {
 		row := s.db.QueryRowContext(ctx, query, noteID.String(), accountID.String())
 		return row.Scan(&idStr, &creatorStr, &createdAtMillis, &updatedAtMillis, &note.Content)
@@ -249,7 +249,7 @@ func (s *sqliteNoteStore) DeleteNote(ctx context.Context, accountID uuid.UUID, n
 
 func (s *sqliteNoteStore) CountNotes(ctx context.Context, accountID uuid.UUID) (int, error) {
 	query := `SELECT COUNT(*) FROM notes WHERE creator = ?`
-	
+
 	var count int
 	err := util.Retry(ctx, defaultRetryConfig, func() error {
 		return s.db.QueryRowContext(ctx, query, accountID.String()).Scan(&count)
@@ -262,7 +262,7 @@ func (s *sqliteNoteStore) CountNotes(ctx context.Context, accountID uuid.UUID) (
 
 func (s *sqliteNoteStore) GetTotalNotes(ctx context.Context) (int, error) {
 	query := `SELECT COUNT(*) FROM notes`
-	
+
 	var count int
 	err := util.Retry(ctx, defaultRetryConfig, func() error {
 		return s.db.QueryRowContext(ctx, query).Scan(&count)
@@ -356,7 +356,6 @@ func createAccountsTable(db *sql.DB) error {
 	return err
 }
 
-
 func createSQLiteDatabaseWithPath(name, basePath string, config DatabaseConfig) (*sql.DB, error) {
 	var dir string
 	if basePath != "" {
@@ -379,7 +378,14 @@ func createSQLiteDatabaseWithPath(name, basePath string, config DatabaseConfig) 
 	file := filepath.Join(dir, fmt.Sprintf("%s.db", name))
 
 	// Configure SQLite for multi-process access with WAL mode and timeouts
-	dsn := fmt.Sprintf("file:%s?journal_mode=WAL&busy_timeout=0&synchronous=FULL", file)
+	dsn := fmt.Sprintf("file:%s", file)
+	if config.EnableWAL {
+		// https://www.sqlite.org/pragma.html#pragma_journal_mode
+		// https://www.sqlite.org/pragma.html#pragma_busy_timeout
+		// https://www.sqlite.org/pragma.html#pragma_synchronous
+		dsn += "?journal_mode=WAL&busy_timeout=0&synchronous=FULL"
+	}
+
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("could not open sqlite db: %w", err)
@@ -410,4 +416,3 @@ var defaultRetryConfig = util.RetryConfig{
 	MaxDelay:        1 * time.Second,
 	ShouldRetryFunc: isSQLiteBusyError,
 }
-

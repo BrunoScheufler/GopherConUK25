@@ -59,6 +59,7 @@ type DatabaseConfig struct {
 	MaxOpenConns    int
 	MaxIdleConns    int
 	ConnMaxLifetime time.Duration
+	EnableWAL       bool
 }
 
 // DefaultDatabaseConfig returns sensible defaults for database configuration
@@ -67,5 +68,6 @@ func DefaultDatabaseConfig() DatabaseConfig {
 		MaxOpenConns:    25,
 		MaxIdleConns:    5,
 		ConnMaxLifetime: 5 * time.Minute,
+		EnableWAL:       true,
 	}
 }

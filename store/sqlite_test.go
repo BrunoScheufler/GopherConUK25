@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 )
 
 // Global temp dir to ensure all stores access the same database files
@@ -801,3 +803,194 @@ func TestUpdateConsistency(t *testing.T) {
 	t.Logf("Update consistency test passed: %d updates all immediately visible across connections", numUpdates)
 }
 
+func TestSQLiteReadWrites(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	createDB := func(wal bool) *sql.DB {
+		db, err := createSQLiteDatabaseWithPath("test-db", tmpDir, DatabaseConfig{
+			MaxOpenConns:    1,
+			MaxIdleConns:    1,
+			ConnMaxLifetime: time.Second,
+			EnableWAL:       wal,
+		})
+		require.NoError(t, err)
+		return db
+	}
+
+	db1 := createDB(false)
+	defer db1.Close()
+
+	require.NoError(t, createNotesTable(db1))
+
+	db2 := createDB(false)
+	defer db2.Close()
+
+	query := "INSERT INTO notes (id, creator, created_at, updated_at, content) VALUES (?, ?, ?, ?, ?)"
+	_, err := db2.Exec(query, "note1", "account1", time.Now().UnixMilli(), time.Now().UnixMilli(), "Test Note 1")
+	require.NoError(t, err)
+
+	var testContent string
+	row := db1.QueryRow("SELECT content FROM notes WHERE id = ?", "note1")
+	err = row.Scan(&testContent)
+	require.NoError(t, err)
+
+	require.Equal(t, "Test Note 1", testContent, "Content should match after insert from another connection")
+}
+
+func TestSQLiteContentionWrites(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	createDB := func(wal bool) *sql.DB {
+		db, err := createSQLiteDatabaseWithPath("test-db", tmpDir, DatabaseConfig{
+			MaxOpenConns:    1,
+			MaxIdleConns:    1,
+			ConnMaxLifetime: time.Second,
+			EnableWAL:       wal,
+		})
+		require.NoError(t, err)
+		return db
+	}
+
+	db1 := createDB(false)
+	defer db1.Close()
+
+	require.NoError(t, createNotesTable(db1))
+
+	db2 := createDB(false)
+	defer db2.Close()
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var busyErrors []error
+	var successfulWrites int
+
+	numGoroutines := 10
+	writesPerGoroutine := 5
+
+	// Launch multiple concurrent writers to create contention
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(writerID int) {
+			defer wg.Done()
+
+			// Alternate between db1 and db2 to increase contention
+			db := db1
+			if writerID%2 == 1 {
+				db = db2
+			}
+
+			for j := 0; j < writesPerGoroutine; j++ {
+				noteID := fmt.Sprintf("note-%d-%d", writerID, j)
+				query := "INSERT INTO notes (id, creator, created_at, updated_at, content) VALUES (?, ?, ?, ?, ?)"
+
+				_, err := db.Exec(query, noteID, "account1", time.Now().UnixMilli(), time.Now().UnixMilli(), fmt.Sprintf("Content from writer %d, note %d", writerID, j))
+
+				if err != nil {
+					if isSQLiteBusyError(err) {
+						mu.Lock()
+						busyErrors = append(busyErrors, err)
+						mu.Unlock()
+					} else {
+						t.Errorf("Unexpected error from writer %d: %v", writerID, err)
+					}
+				} else {
+					mu.Lock()
+					successfulWrites++
+					mu.Unlock()
+				}
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Verify we encountered at least one busy error due to contention
+	require.Greater(t, len(busyErrors), 0, "Expected to encounter at least one SQLite busy error due to contention")
+
+	t.Logf("Encountered %d SQLite busy errors during concurrent writes", len(busyErrors))
+	t.Logf("Completed %d successful writes out of %d total attempts", successfulWrites, numGoroutines*writesPerGoroutine)
+
+	// Verify some writes succeeded despite contention
+	require.Greater(t, successfulWrites, 0, "Expected at least some writes to succeed")
+}
+
+func TestSQLiteContentionReads(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	createDB := func(wal bool) *sql.DB {
+		db, err := createSQLiteDatabaseWithPath("test-db", tmpDir, DatabaseConfig{
+			MaxOpenConns:    1,
+			MaxIdleConns:    1,
+			ConnMaxLifetime: time.Second,
+			EnableWAL:       wal,
+		})
+		require.NoError(t, err)
+		return db
+	}
+
+	db1 := createDB(false)
+	defer db1.Close()
+
+	require.NoError(t, createNotesTable(db1))
+
+	// Insert some initial data for reading
+	query := "INSERT INTO notes (id, creator, created_at, updated_at, content) VALUES (?, ?, ?, ?, ?)"
+	for i := 0; i < 5; i++ {
+		_, err := db1.Exec(query, fmt.Sprintf("initial-note-%d", i), "account1", time.Now().UnixMilli(), time.Now().UnixMilli(), fmt.Sprintf("Initial content %d", i))
+		require.NoError(t, err)
+	}
+
+	db2 := createDB(false)
+	defer db2.Close()
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var busyErrors []error
+	var successfulReads int
+
+	numGoroutines := 10
+	readsPerGoroutine := 5
+
+	// Launch multiple concurrent readers to create contention
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(readerID int) {
+			defer wg.Done()
+
+			// Alternate between db1 and db2 to increase contention
+			db := db1
+			if readerID%2 == 1 {
+				db = db2
+			}
+
+			for j := 0; j < readsPerGoroutine; j++ {
+				var count int
+				err := db.QueryRow("SELECT COUNT(*) FROM notes WHERE creator = ?", "account1").Scan(&count)
+
+				if err != nil {
+					if isSQLiteBusyError(err) {
+						mu.Lock()
+						busyErrors = append(busyErrors, err)
+						mu.Unlock()
+					} else {
+						t.Errorf("Unexpected error from reader %d: %v", readerID, err)
+					}
+				} else {
+					mu.Lock()
+					successfulReads++
+					mu.Unlock()
+				}
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Verify we encountered at least one busy error due to contention
+	require.Equal(t, len(busyErrors), 0, "Expected to encounter no SQLite busy error during concurrent reads")
+
+	t.Logf("Completed %d successful reads out of %d total attempts", successfulReads, numGoroutines*readsPerGoroutine)
+
+	// Verify some reads succeeded despite contention
+	require.Greater(t, successfulReads, 0, "Expected at least some reads to succeed")
+}
