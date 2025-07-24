@@ -388,13 +388,9 @@ func (c *CLIApp) formatDeployments(theme Theme) string {
 	// Current deployment
 	current := c.deploymentController.Current()
 	if current != nil {
-		proxyStats := c.getProxyStats(current.ID)
-		requestRate := c.calculateProxyRequestRate(proxyStats)
 		result.WriteString(fmt.Sprintf("%sCurrent (v%d)[-]\n", headerColor, current.ID))
 		result.WriteString(fmt.Sprintf("%sLaunched: %s%s[-]\n", 
 			labelColor, valueColor, current.LaunchedAt.Format("15:04:05")))
-		result.WriteString(fmt.Sprintf("%sRequests/sec: %s%.1f[-]\n", 
-			labelColor, valueColor, requestRate))
 	} else {
 		result.WriteString(fmt.Sprintf("%sCurrent: %sNone[-]\n", headerColor, labelColor))
 	}
@@ -404,13 +400,9 @@ func (c *CLIApp) formatDeployments(theme Theme) string {
 	// Previous deployment
 	previous := c.deploymentController.Previous()
 	if previous != nil {
-		proxyStats := c.getProxyStats(previous.ID)
-		requestRate := c.calculateProxyRequestRate(proxyStats)
 		result.WriteString(fmt.Sprintf("%sPrevious (v%d)[-]\n", headerColor, previous.ID))
 		result.WriteString(fmt.Sprintf("%sLaunched: %s%s[-]\n", 
 			labelColor, valueColor, previous.LaunchedAt.Format("15:04:05")))
-		result.WriteString(fmt.Sprintf("%sRequests/sec: %s%.1f[-]\n", 
-			labelColor, valueColor, requestRate))
 	} else {
 		result.WriteString(fmt.Sprintf("%sPrevious: %sNone[-]\n", headerColor, labelColor))
 	}
@@ -428,107 +420,8 @@ func (c *CLIApp) shardMetricsUpdateLoop() {
 		case <-c.ctx.Done():
 			return
 		case <-ticker.C:
-			c.updateShardMetrics()
 		}
 	}
 }
 
-func (c *CLIApp) updateShardMetrics() {
-	if c.telemetry == nil {
-		return
-	}
 
-	theme := GetTheme(c.options.Theme)
-	c.app.QueueUpdateDraw(func() {
-		c.shardMetricsView.Clear()
-		text := c.formatShardMetrics(theme)
-		c.shardMetricsView.SetText(text)
-	})
-}
-
-func (c *CLIApp) getProxyStats(proxyID int) *telemetry.ProxyStats {
-	if c.telemetry == nil {
-		return nil
-	}
-
-	stats := c.telemetry.GetStatsCollector().Export()
-
-	// Find matching proxy stats by ID
-	for _, proxyStats := range stats.ProxyAccess {
-		if proxyStats.ProxyID == proxyID {
-			return &proxyStats
-		}
-	}
-	return nil
-}
-
-func (c *CLIApp) calculateProxyRequestRate(proxyStats *telemetry.ProxyStats) float64 {
-	if proxyStats == nil {
-		return 0.0
-	}
-
-	// In the new design, each ProxyStats represents one operation type
-	// So we return the requests per minute for this specific operation
-	return float64(proxyStats.Metrics.RequestsPerMin) / 60.0 // requests per second
-}
-
-func (c *CLIApp) formatShardMetrics(theme Theme) string {
-	if c.telemetry == nil {
-		return "No telemetry available"
-	}
-
-	stats := c.telemetry.GetStatsCollector().Export()
-	dataStoreStats := stats.DataStoreAccess
-	if len(dataStoreStats) == 0 {
-		return "No shard stats available"
-	}
-
-	var result strings.Builder
-	
-	// Choose colors based on theme
-	var headerColor, labelColor, valueColor string
-	if theme.Name == "light" {
-		headerColor = "[navy]"
-		labelColor = "[black]"
-		valueColor = "[darkgreen]"
-	} else {
-		headerColor = "[yellow]"
-		labelColor = "[white]"
-		valueColor = "[green]"
-	}
-
-	result.WriteString(fmt.Sprintf("%sShard Statistics[-]\n\n", headerColor))
-
-	// Collect all unique shard IDs
-	shards := make(map[string]struct{})
-	for _, stat := range dataStoreStats {
-		shards[stat.StoreID] = struct{}{}
-	}
-
-	if len(shards) == 0 {
-		result.WriteString(fmt.Sprintf("%sNo shard activity[-]\n", labelColor))
-		return result.String()
-	}
-
-	for shardID := range shards {
-		result.WriteString(fmt.Sprintf("%s%s[-]\n", headerColor, shardID))
-		
-		// Get total requests for this shard across all operations
-		totalRequests := 0
-		totalRPM := 0
-		for _, stat := range dataStoreStats {
-			if stat.StoreID == shardID {
-				totalRequests += stat.Metrics.TotalCount
-				totalRPM += stat.Metrics.RequestsPerMin
-			}
-		}
-
-		// Calculate rate
-		requestRate := float64(totalRPM) / 60.0
-
-		result.WriteString(fmt.Sprintf("%sTotal: %s%d[-]\n", labelColor, valueColor, totalRequests))
-		result.WriteString(fmt.Sprintf("%sRate: %s%.1f/sec[-]\n\n", labelColor, valueColor, requestRate))
-	}
-
-	return result.String()
-}

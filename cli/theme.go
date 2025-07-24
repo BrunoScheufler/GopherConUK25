@@ -1,11 +1,10 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"text/template"
-	"time"
+	"sort"
+	"strings"
 
 	"github.com/brunoscheufler/gopherconuk25/store"
 	"github.com/brunoscheufler/gopherconuk25/telemetry"
@@ -89,31 +88,6 @@ func ApplyThemeToTextView(tv *tview.TextView, theme Theme) {
 	tv.SetTitleColor(theme.Title)
 }
 
-const statsTemplate = `{{.LabelColor}}Accounts:{{.ValueColor}} {{.AccountCount}}{{.LabelColor}}
-Notes:{{.ValueColor}} {{.NoteCount}}{{.LabelColor}}
-Total Requests:{{.ValueColor}} {{.TotalRequests}}{{.LabelColor}}
-Rate:{{.ValueColor}} {{.RequestsPerSec}}/sec{{.LabelColor}}
-Uptime:{{.ValueColor}} {{.Uptime}}{{.LabelColor}}
-Goroutines:{{.ValueColor}} {{.GoRoutines}}{{.LabelColor}}
-Memory:{{.ValueColor}} {{.MemoryUsage}}{{.LabelColor}}
-Updated:{{.SecondaryColor}} {{.LastUpdated}}[-]`
-
-type StatsData struct {
-	AccountCount   int
-	NoteCount      int
-	TotalRequests  int64
-	RequestsPerSec int64
-	Uptime         string
-	GoRoutines     int
-	MemoryUsage    string
-	LastUpdated    string
-	LabelColor     string
-	ValueColor     string
-	SecondaryColor string
-}
-
-var statsTemplateParsed = template.Must(template.New("stats").Parse(statsTemplate))
-
 // getStoreCounts retrieves live counts from the account and note stores
 func getStoreCounts(ctx context.Context, accountStore store.AccountStore, noteStore store.NoteStore) (accountCount, noteCount int) {
 	if accountStore != nil {
@@ -132,56 +106,150 @@ func getStoreCounts(ctx context.Context, accountStore store.AccountStore, noteSt
 }
 
 func FormatStatsWithTheme(stats *telemetry.Stats, theme Theme, appConfig *AppConfig, ctx context.Context) string {
-	var labelColor, valueColor, secondaryColor string
-
+	var result strings.Builder
+	
+	// Choose colors based on theme
+	var headerColor, labelColor, valueColor, successColor, errorColor string
 	if theme.Name == "light" {
-		labelColor = "[navy]"
-		valueColor = "[teal]"
-		secondaryColor = "[darkgray]"
+		headerColor = "[navy]"
+		labelColor = "[black]"
+		valueColor = "[darkgreen]"
+		successColor = "[darkgreen]"
+		errorColor = "[darkred]"
 	} else {
+		headerColor = "[yellow]"
 		labelColor = "[white]"
-		valueColor = "[aqua]"
-		secondaryColor = "[gray]"
+		valueColor = "[green]"
+		successColor = "[green]"
+		errorColor = "[red]"
 	}
 
 	// Get live counts from stores
 	accountCount, noteCount := getStoreCounts(ctx, appConfig.AccountStore, appConfig.NoteStore)
+	
+	// Store counts section
+	result.WriteString(fmt.Sprintf("%sData Store[-]\n", headerColor))
+	result.WriteString(fmt.Sprintf("%sAccounts: %s%d[-]\n", labelColor, valueColor, accountCount))
+	result.WriteString(fmt.Sprintf("%sNotes: %s%d[-]\n\n", labelColor, valueColor, noteCount))
 
-	// Calculate approximate totals from new stats structure
-	totalRequests := int64(0)
-	totalRPM := int64(0)
-	for _, apiStat := range stats.APIRequests {
-		totalRequests += int64(apiStat.Metrics.TotalCount)
-		totalRPM += int64(apiStat.Metrics.RequestsPerMin)
+	// API Requests section
+	result.WriteString(fmt.Sprintf("%sAPI Requests[-]\n", headerColor))
+	if len(stats.APIRequests) == 0 {
+		result.WriteString(fmt.Sprintf("%sNo API activity[-]\n\n", labelColor))
+	} else {
+		// Sort API stats by total count (descending)
+		type apiStatPair struct {
+			key  string
+			stat telemetry.APIStats
+		}
+		var apiStats []apiStatPair
+		for key, stat := range stats.APIRequests {
+			apiStats = append(apiStats, apiStatPair{key, stat})
+		}
+		sort.Slice(apiStats, func(i, j int) bool {
+			return apiStats[i].stat.Metrics.TotalCount > apiStats[j].stat.Metrics.TotalCount
+		})
+
+		totalAPIRequests := 0
+		totalAPIRPM := 0
+		for _, pair := range apiStats {
+			stat := pair.stat
+			totalAPIRequests += stat.Metrics.TotalCount
+			totalAPIRPM += stat.Metrics.RequestsPerMin
+			
+			statusColor := valueColor
+			if stat.Status >= 400 {
+				statusColor = errorColor
+			}
+			
+			result.WriteString(fmt.Sprintf("%s%s %s %s%d[-] %sTotal: %s%d[-] %sRPM: %s%d[-] %sP95: %s%dms[-]\n",
+				labelColor, stat.Method, stat.Route, statusColor, stat.Status,
+				labelColor, valueColor, stat.Metrics.TotalCount,
+				labelColor, valueColor, stat.Metrics.RequestsPerMin,
+				labelColor, valueColor, stat.Metrics.DurationP95))
+		}
+		result.WriteString(fmt.Sprintf("%sTotal: %s%d[-] %sRPM: %s%d[-]\n\n", 
+			labelColor, valueColor, totalAPIRequests, labelColor, valueColor, totalAPIRPM))
 	}
 
-	data := StatsData{
-		AccountCount:   accountCount,
-		NoteCount:      noteCount,
-		TotalRequests:  totalRequests,
-		RequestsPerSec: totalRPM / 60, // Approximate requests per second
-		Uptime:         "N/A",         // Not available in new structure
-		GoRoutines:     0,             // Not available in new structure
-		MemoryUsage:    "N/A",         // Not available in new structure
-		LastUpdated:    "N/A",         // Not available in new structure
-		LabelColor:     labelColor,
-		ValueColor:     valueColor,
-		SecondaryColor: secondaryColor,
+	// Proxy Access section
+	result.WriteString(fmt.Sprintf("%sProxy Access[-]\n", headerColor))
+	if len(stats.ProxyAccess) == 0 {
+		result.WriteString(fmt.Sprintf("%sNo proxy activity[-]\n\n", labelColor))
+	} else {
+		// Group proxy stats by proxy ID
+		proxyGroups := make(map[int][]telemetry.ProxyStats)
+		for _, stat := range stats.ProxyAccess {
+			proxyGroups[stat.ProxyID] = append(proxyGroups[stat.ProxyID], stat)
+		}
+
+		// Sort proxy IDs
+		var proxyIDs []int
+		for id := range proxyGroups {
+			proxyIDs = append(proxyIDs, id)
+		}
+		sort.Ints(proxyIDs)
+
+		for _, proxyID := range proxyIDs {
+			proxyStats := proxyGroups[proxyID]
+			result.WriteString(fmt.Sprintf("%sProxy %d:[-]\n", headerColor, proxyID))
+			
+			for _, stat := range proxyStats {
+				statusColor := successColor
+				if !stat.Success {
+					statusColor = errorColor
+				}
+				
+				result.WriteString(fmt.Sprintf("  %s%s %s%s[-] %sTotal: %s%d[-] %sRPM: %s%d[-] %sP95: %s%dms[-]\n",
+					labelColor, stat.Operation, statusColor, 
+					func() string { if stat.Success { return "✓" } else { return "✗" } }(),
+					labelColor, valueColor, stat.Metrics.TotalCount,
+					labelColor, valueColor, stat.Metrics.RequestsPerMin,
+					labelColor, valueColor, stat.Metrics.DurationP95))
+			}
+		}
+		result.WriteString("\n")
 	}
 
-	var buf bytes.Buffer
-	if err := statsTemplateParsed.Execute(&buf, data); err != nil {
-		return fmt.Sprintf("Error formatting stats: %v", err)
+	// Data Store Access section
+	result.WriteString(fmt.Sprintf("%sData Store Access[-]\n", headerColor))
+	if len(stats.DataStoreAccess) == 0 {
+		result.WriteString(fmt.Sprintf("%sNo data store activity[-]\n", labelColor))
+	} else {
+		// Group data store stats by store ID
+		storeGroups := make(map[string][]telemetry.DataStoreStats)
+		for _, stat := range stats.DataStoreAccess {
+			storeGroups[stat.StoreID] = append(storeGroups[stat.StoreID], stat)
+		}
+
+		// Sort store IDs
+		var storeIDs []string
+		for id := range storeGroups {
+			storeIDs = append(storeIDs, id)
+		}
+		sort.Strings(storeIDs)
+
+		for _, storeID := range storeIDs {
+			storeStats := storeGroups[storeID]
+			result.WriteString(fmt.Sprintf("%s%s:[-]\n", headerColor, storeID))
+			
+			for _, stat := range storeStats {
+				statusColor := successColor
+				if !stat.Success {
+					statusColor = errorColor
+				}
+				
+				result.WriteString(fmt.Sprintf("  %s%s %s%s[-] %sTotal: %s%d[-] %sRPM: %s%d[-] %sP95: %s%dms[-]\n",
+					labelColor, stat.Operation, statusColor,
+					func() string { if stat.Success { return "✓" } else { return "✗" } }(),
+					labelColor, valueColor, stat.Metrics.TotalCount,
+					labelColor, valueColor, stat.Metrics.RequestsPerMin,
+					labelColor, valueColor, stat.Metrics.DurationP95))
+			}
+		}
 	}
 
-	return buf.String()
-}
-
-func formatDuration(d time.Duration) string {
-	if d < time.Hour {
-		return fmt.Sprintf("%dm%ds", int(d.Minutes()), int(d.Seconds())%60)
-	}
-	return fmt.Sprintf("%dh%dm", int(d.Hours()), int(d.Minutes())%60)
+	return result.String()
 }
 
 func FormatLogEntryWithTheme(entry telemetry.LogEntry, theme Theme) string {
