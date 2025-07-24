@@ -9,43 +9,45 @@ import (
 	"github.com/brunoscheufler/gopherconuk25/constants"
 	"github.com/brunoscheufler/gopherconuk25/store"
 	"github.com/brunoscheufler/gopherconuk25/telemetry"
-	"github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/bubbles/table"
-	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/progress"
+	"github.com/charmbracelet/bubbles/table"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // Model represents the main TUI model
 type Model struct {
-	appConfig            *AppConfig
-	options              CLIOptions
-	
+	appConfig *AppConfig
+	options   CLIOptions
+
 	// Context for cancellation
-	ctx                  context.Context
-	cancel               context.CancelFunc
-	
+	ctx    context.Context
+	cancel context.CancelFunc
+
 	// Screen dimensions
-	width                int
-	height               int
-	
+	width  int
+	height int
+
 	// Panel components
-	apiTable             table.Model
-	dataStoreTable       table.Model
-	deploymentProgress   progress.Model
-	logs                 []string
-	
+	apiTable       table.Model
+	dataStoreTable table.Model
+	logs           []string
+
 	// Table column definitions for dynamic resizing
-	apiColumns           []table.Column
-	dataStoreColumns     []table.Column
-	
+	apiColumns       []table.Column
+	dataStoreColumns []table.Column
+
 	// Help component
-	help                 help.Model
-	
+	help help.Model
+
+	// Progress bar for deployments
+	progressBar progress.Model
+
 	// Theme colors
-	theme                BubbleTeaTheme
-	
+	theme BubbleTeaTheme
+
 	// Last update times to control refresh rates
 	lastStatsUpdate      time.Time
 	lastAccountsUpdate   time.Time
@@ -55,16 +57,16 @@ type Model struct {
 
 // BubbleTeaTheme defines color schemes for the bubbletea interface
 type BubbleTeaTheme struct {
-	Name           string
-	Primary        lipgloss.Color
-	Secondary      lipgloss.Color
-	Accent         lipgloss.Color
-	Success        lipgloss.Color
-	Warning        lipgloss.Color
-	Error          lipgloss.Color
-	Border         lipgloss.Color
-	Subtle         lipgloss.Color
-	Highlight      lipgloss.Color
+	Name      string
+	Primary   lipgloss.Color
+	Secondary lipgloss.Color
+	Accent    lipgloss.Color
+	Success   lipgloss.Color
+	Warning   lipgloss.Color
+	Error     lipgloss.Color
+	Border    lipgloss.Color
+	Subtle    lipgloss.Color
+	Highlight lipgloss.Color
 }
 
 var (
@@ -80,7 +82,7 @@ var (
 		Subtle:    lipgloss.Color("#666666"),
 		Highlight: lipgloss.Color("#FFFF00"),
 	}
-	
+
 	lightTheme = BubbleTeaTheme{
 		Name:      "light",
 		Primary:   lipgloss.Color("#000000"),
@@ -125,9 +127,9 @@ var keys = keyMap{
 // NewBubbleTeaModel creates a new TUI model
 func NewBubbleTeaModel(appConfig *AppConfig, options CLIOptions) *Model {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	theme := GetBubbleTeaTheme(options.Theme)
-	
+
 	// Initialize API requests table
 	apiColumns := []table.Column{
 		{Title: "Method", Width: 8},
@@ -137,7 +139,7 @@ func NewBubbleTeaModel(appConfig *AppConfig, options CLIOptions) *Model {
 		{Title: "RPM", Width: 6},
 		{Title: "P95ms", Width: 8},
 	}
-	
+
 	// Create table styles for API table
 	apiTableStyles := table.DefaultStyles()
 	apiTableStyles.Header = apiTableStyles.Header.
@@ -150,14 +152,14 @@ func NewBubbleTeaModel(appConfig *AppConfig, options CLIOptions) *Model {
 		Foreground(theme.Primary).
 		Background(theme.Accent).
 		Bold(false)
-	
+
 	apiTable := table.New(
 		table.WithColumns(apiColumns),
 		table.WithFocused(false),
 		table.WithHeight(10),
 		table.WithStyles(apiTableStyles),
 	)
-	
+
 	// Initialize data store table
 	dataStoreColumns := []table.Column{
 		{Title: "Store", Width: 15},
@@ -167,7 +169,7 @@ func NewBubbleTeaModel(appConfig *AppConfig, options CLIOptions) *Model {
 		{Title: "RPM", Width: 6},
 		{Title: "P95ms", Width: 8},
 	}
-	
+
 	// Create table styles for data store table
 	dataStoreTableStyles := table.DefaultStyles()
 	dataStoreTableStyles.Header = dataStoreTableStyles.Header.
@@ -180,37 +182,36 @@ func NewBubbleTeaModel(appConfig *AppConfig, options CLIOptions) *Model {
 		Foreground(theme.Primary).
 		Background(theme.Accent).
 		Bold(false)
-	
+
 	dataStoreTable := table.New(
 		table.WithColumns(dataStoreColumns),
 		table.WithFocused(false),
 		table.WithHeight(8),
 		table.WithStyles(dataStoreTableStyles),
 	)
-	
-	// Initialize progress bar with solid colors for better visibility
-	deploymentProgress := progress.New(
-		progress.WithWidth(40),
-		progress.WithoutPercentage(),
-		progress.WithScaledGradient(string(theme.Accent), string(theme.Success)),
-	)
-	
+
 	// Initialize help
 	helpModel := help.New()
-	
+
+	// Initialize progress bar with gradient colors matching theme
+	progressModel := progress.New(
+		progress.WithScaledGradient(string(theme.Accent), string(theme.Success)),
+		progress.WithoutPercentage(),
+	)
+
 	return &Model{
-		appConfig:          appConfig,
-		options:            options,
-		ctx:                ctx,
-		cancel:             cancel,
-		apiTable:           apiTable,
-		dataStoreTable:     dataStoreTable,
-		deploymentProgress: deploymentProgress,
-		help:               helpModel,
-		theme:              theme,
-		logs:               []string{},
-		apiColumns:         apiColumns,
-		dataStoreColumns:   dataStoreColumns,
+		appConfig:        appConfig,
+		options:          options,
+		ctx:              ctx,
+		cancel:           cancel,
+		apiTable:         apiTable,
+		dataStoreTable:   dataStoreTable,
+		help:             helpModel,
+		progressBar:      progressModel,
+		theme:            theme,
+		logs:             []string{},
+		apiColumns:       apiColumns,
+		dataStoreColumns: dataStoreColumns,
 	}
 }
 
@@ -226,17 +227,17 @@ func (m *Model) Init() tea.Cmd {
 // Update handles messages
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
-	
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		
+
 		// Recalculate panel dimensions based on new size
 		m.adjustTableSizes()
-		
+
 		return m, nil
-		
+
 	case tea.KeyMsg:
 		switch {
 		case key.Matches(msg, keys.Quit):
@@ -248,33 +249,33 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		
+
 	case tickMsg:
 		// Update data based on intervals
 		now := time.Now()
-		
+
 		if now.Sub(m.lastStatsUpdate) >= constants.DefaultStatsInterval {
 			m.lastStatsUpdate = now
 			m.updateAPIStats()
 		}
-		
+
 		if now.Sub(m.lastShardUpdate) >= time.Second {
 			m.lastShardUpdate = now
 			m.updateDataStoreStats()
 		}
-		
+
 		if now.Sub(m.lastDeploymentUpdate) >= time.Second {
 			m.lastDeploymentUpdate = now
 			m.updateDeploymentStatus()
 		}
-		
+
 		if now.Sub(m.lastAccountsUpdate) >= 5*time.Second {
 			m.lastAccountsUpdate = now
 			// Account updates can be added here if needed
 		}
-		
+
 		return m, m.tickCmd()
-		
+
 	case logMsg:
 		m.logs = append(m.logs, string(msg))
 		// Keep only the last 100 log entries
@@ -283,7 +284,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	
+
 	return m, tea.Batch(cmds...)
 }
 
@@ -292,7 +293,7 @@ func (m *Model) View() string {
 	if m.width == 0 || m.height == 0 {
 		return "Loading..."
 	}
-	
+
 	// Calculate layout based on screen size
 	return m.renderLayout()
 }
@@ -305,25 +306,25 @@ func (m *Model) renderLayout() string {
 		BorderForeground(m.theme.Border).
 		Padding(1).
 		Margin(0, 1)
-	
+
 	titleStyle := lipgloss.NewStyle().
 		Foreground(m.theme.Highlight).
 		Bold(true)
-	
+
 	helpStyle := lipgloss.NewStyle().
 		Foreground(m.theme.Subtle).
 		Margin(1, 0, 0, 0)
-	
+
 	// Calculate available space
 	helpHeight := 3
 	availableHeight := m.height - helpHeight - 2 // Account for margins
-	availableWidth := m.width - 4 // Account for margins
-	
+	availableWidth := m.width - 4                // Account for margins
+
 	// Determine layout based on screen size
 	if availableWidth < 120 || availableHeight < 30 {
 		return m.renderVerticalLayout(panelStyle, titleStyle, helpStyle, availableWidth, availableHeight)
 	}
-	
+
 	return m.renderGridLayout(panelStyle, titleStyle, helpStyle, availableWidth, availableHeight)
 }
 
@@ -331,34 +332,34 @@ func (m *Model) renderLayout() string {
 func (m *Model) renderVerticalLayout(panelStyle, titleStyle, helpStyle lipgloss.Style, width, height int) string {
 	panelHeight := (height - 8) / 4 // Divide among 4 panels with some margin
 	panelWidth := width - 4
-	
+
 	// Update table sizes
-	m.apiTable = table.New(table.WithColumns(m.apiTable.Columns()), 
+	m.apiTable = table.New(table.WithColumns(m.apiTable.Columns()),
 		table.WithRows(m.apiTable.Rows()),
-		table.WithWidth(panelWidth - 4), 
-		table.WithHeight(panelHeight - 6))
-	m.dataStoreTable = table.New(table.WithColumns(m.dataStoreTable.Columns()), 
+		table.WithWidth(panelWidth-4),
+		table.WithHeight(panelHeight-6))
+	m.dataStoreTable = table.New(table.WithColumns(m.dataStoreTable.Columns()),
 		table.WithRows(m.dataStoreTable.Rows()),
-		table.WithWidth(panelWidth - 4), 
-		table.WithHeight(panelHeight - 6))
-	
+		table.WithWidth(panelWidth-4),
+		table.WithHeight(panelHeight-6))
+
 	// Render each panel
 	apiPanel := panelStyle.Width(panelWidth).Height(panelHeight).Render(
 		titleStyle.Render("API Requests") + "\n" + m.apiTable.View(),
 	)
-	
+
 	dataStorePanel := panelStyle.Width(panelWidth).Height(panelHeight).Render(
 		titleStyle.Render("Data Store Access") + "\n" + m.dataStoreTable.View(),
 	)
-	
+
 	deploymentPanel := panelStyle.Width(panelWidth).Height(panelHeight).Render(
 		titleStyle.Render("Deployments [Press 'd' to deploy]") + "\n" + m.renderDeploymentContent(),
 	)
-	
+
 	logsPanel := panelStyle.Width(panelWidth).Height(panelHeight).Render(
 		titleStyle.Render("Logs") + "\n" + m.renderLogsContent(panelHeight-4),
 	)
-	
+
 	// Stack vertically
 	content := lipgloss.JoinVertical(
 		lipgloss.Left,
@@ -367,70 +368,72 @@ func (m *Model) renderVerticalLayout(panelStyle, titleStyle, helpStyle lipgloss.
 		deploymentPanel,
 		logsPanel,
 	)
-	
+
 	// Add help at bottom
 	help := helpStyle.Render(m.help.View(keys))
-	
+
 	return lipgloss.JoinVertical(lipgloss.Left, content, help)
 }
 
 // renderGridLayout renders panels in a 2x2 grid with logs at bottom
 func (m *Model) renderGridLayout(panelStyle, titleStyle, helpStyle lipgloss.Style, width, height int) string {
 	// Calculate panel dimensions
-	panelWidth := (width - 6) / 2  // Two columns with margins
-	topPanelHeight := (height - 12) * 2 / 3  // Top section gets 2/3
-	logsPanelHeight := (height - 12) / 3     // Logs get 1/3
-	
+	panelWidth := (width - 6) / 2           // Two columns with margins
+	topPanelHeight := (height - 12) * 2 / 3 // Top section gets 2/3
+	logsPanelHeight := (height - 12) / 3    // Logs get 1/3
+
 	// Update table sizes
-	m.apiTable = table.New(table.WithColumns(m.apiTable.Columns()), 
+	m.apiTable = table.New(table.WithColumns(m.apiTable.Columns()),
 		table.WithRows(m.apiTable.Rows()),
-		table.WithWidth(panelWidth - 4), 
-		table.WithHeight(topPanelHeight/2 - 6))
-	m.dataStoreTable = table.New(table.WithColumns(m.dataStoreTable.Columns()), 
+		table.WithWidth(panelWidth-4),
+		table.WithHeight(topPanelHeight/2-6))
+	m.dataStoreTable = table.New(table.WithColumns(m.dataStoreTable.Columns()),
 		table.WithRows(m.dataStoreTable.Rows()),
-		table.WithWidth(panelWidth - 4), 
-		table.WithHeight(topPanelHeight/2 - 6))
-	
+		table.WithWidth(panelWidth-4),
+		table.WithHeight(topPanelHeight/2-6))
+
 	// Render top row panels
-	apiPanel := panelStyle.Width(panelWidth).Height(topPanelHeight/2).Render(
+	apiPanel := panelStyle.Width(panelWidth).Height(topPanelHeight / 2).Render(
 		titleStyle.Render("API Requests") + "\n" + m.apiTable.View(),
 	)
-	
-	accountsPanel := panelStyle.Width(panelWidth).Height(topPanelHeight/2).Render(
+
+	accountsPanel := panelStyle.Width(panelWidth).Height(topPanelHeight / 2).Render(
 		titleStyle.Render("Top Accounts") + "\n" + m.renderAccountsContent(),
 	)
-	
+
 	// Render middle row panels
-	deploymentPanel := panelStyle.Width(panelWidth).Height(topPanelHeight/2).Render(
+	deploymentPanel := panelStyle.Width(panelWidth).Height(topPanelHeight / 2).Render(
 		titleStyle.Render("Deployments [Press 'd' to deploy]") + "\n" + m.renderDeploymentContent(),
 	)
-	
-	dataStorePanel := panelStyle.Width(panelWidth).Height(topPanelHeight/2).Render(
+
+	dataStorePanel := panelStyle.Width(panelWidth).Height(topPanelHeight / 2).Render(
 		titleStyle.Render("Data Store Access by Shard") + "\n" + m.dataStoreTable.View(),
 	)
-	
+
 	// Create grid layout
 	topRow := lipgloss.JoinHorizontal(lipgloss.Top, apiPanel, accountsPanel)
 	middleRow := lipgloss.JoinHorizontal(lipgloss.Top, deploymentPanel, dataStorePanel)
 	topSection := lipgloss.JoinVertical(lipgloss.Left, topRow, middleRow)
-	
+
 	// Render logs panel
-	logsPanel := panelStyle.Width(width-2).Height(logsPanelHeight).Render(
+	logsPanel := panelStyle.Width(width - 2).Height(logsPanelHeight).Render(
 		titleStyle.Render("Logs") + "\n" + m.renderLogsContent(logsPanelHeight-4),
 	)
-	
+
 	// Combine all sections
 	content := lipgloss.JoinVertical(lipgloss.Left, topSection, logsPanel)
-	
+
 	// Add help at bottom
 	help := helpStyle.Render(m.help.View(keys))
-	
+
 	return lipgloss.JoinVertical(lipgloss.Left, content, help)
 }
 
 // Message types for updates
-type tickMsg time.Time
-type logMsg string
+type (
+	tickMsg time.Time
+	logMsg  string
+)
 
 // tickCmd returns a command that sends a tick message every second
 func (m *Model) tickCmd() tea.Cmd {
@@ -449,7 +452,7 @@ func (m *Model) setupLogCapture() tea.Cmd {
 			plainMessage := strings.ReplaceAll(entry.Message, "\n", "")
 			m.logs = append(m.logs, plainMessage)
 		}
-		
+
 		// Set up callback for new logs
 		m.appConfig.Telemetry.LogCapture.SetLogCallback(func(entry telemetry.LogEntry) {
 			// This is a simplified approach - in a production app you'd use channels
@@ -465,9 +468,9 @@ func (m *Model) updateAPIStats() {
 	if m.appConfig.Telemetry == nil {
 		return
 	}
-	
+
 	stats := m.appConfig.Telemetry.GetStatsCollector().Export()
-	
+
 	// Convert map to slice for sorting
 	type apiStatPair struct {
 		key  string
@@ -477,7 +480,7 @@ func (m *Model) updateAPIStats() {
 	for key, stat := range stats.APIRequests {
 		apiStats = append(apiStats, apiStatPair{key, stat})
 	}
-	
+
 	// Sort by total count (descending)
 	for i := 0; i < len(apiStats); i++ {
 		for j := i + 1; j < len(apiStats); j++ {
@@ -486,7 +489,7 @@ func (m *Model) updateAPIStats() {
 			}
 		}
 	}
-	
+
 	var rows []table.Row
 	for _, pair := range apiStats {
 		stat := pair.stat
@@ -495,7 +498,7 @@ func (m *Model) updateAPIStats() {
 		if len(route) > 18 {
 			route = route[:15] + "..."
 		}
-		
+
 		row := table.Row{
 			stat.Method,
 			route,
@@ -506,7 +509,7 @@ func (m *Model) updateAPIStats() {
 		}
 		rows = append(rows, row)
 	}
-	
+
 	// Recreate table with themed styles
 	styles := table.DefaultStyles()
 	styles.Header = styles.Header.
@@ -519,7 +522,7 @@ func (m *Model) updateAPIStats() {
 		Foreground(m.theme.Primary).
 		Background(m.theme.Accent).
 		Bold(false)
-	
+
 	m.apiTable = table.New(
 		table.WithColumns(m.apiTable.Columns()),
 		table.WithRows(rows),
@@ -533,15 +536,15 @@ func (m *Model) updateDataStoreStats() {
 	if m.appConfig.Telemetry == nil {
 		return
 	}
-	
+
 	stats := m.appConfig.Telemetry.GetStatsCollector().Export()
-	
+
 	// Sort data store stats by total count (descending)
 	var dataStoreStats []*telemetry.DataStoreStats
 	for _, stat := range stats.DataStoreAccess {
 		dataStoreStats = append(dataStoreStats, stat)
 	}
-	
+
 	for i := 0; i < len(dataStoreStats); i++ {
 		for j := i + 1; j < len(dataStoreStats); j++ {
 			if dataStoreStats[i].Metrics.TotalCount < dataStoreStats[j].Metrics.TotalCount {
@@ -549,20 +552,20 @@ func (m *Model) updateDataStoreStats() {
 			}
 		}
 	}
-	
+
 	var rows []table.Row
 	for _, stat := range dataStoreStats {
 		statusIcon := "✓"
 		if !stat.Success {
 			statusIcon = "✗"
 		}
-		
+
 		// Truncate store ID if too long
 		storeID := stat.StoreID
 		if len(storeID) > 13 {
 			storeID = storeID[:10] + "..."
 		}
-		
+
 		row := table.Row{
 			storeID,
 			stat.Operation,
@@ -573,7 +576,7 @@ func (m *Model) updateDataStoreStats() {
 		}
 		rows = append(rows, row)
 	}
-	
+
 	// Recreate table with themed styles
 	styles := table.DefaultStyles()
 	styles.Header = styles.Header.
@@ -586,7 +589,7 @@ func (m *Model) updateDataStoreStats() {
 		Foreground(m.theme.Primary).
 		Background(m.theme.Accent).
 		Bold(false)
-	
+
 	m.dataStoreTable = table.New(
 		table.WithColumns(m.dataStoreTable.Columns()),
 		table.WithRows(rows),
@@ -597,14 +600,7 @@ func (m *Model) updateDataStoreStats() {
 }
 
 func (m *Model) updateDeploymentStatus() {
-	if m.appConfig.DeploymentController == nil {
-		return
-	}
-	
-	isActive, _, _, progressPercent := m.appConfig.DeploymentController.GetDeploymentProgress()
-	if isActive {
-		m.deploymentProgress.SetPercent(float64(progressPercent) / 100.0)
-	}
+	// Progress bar removed - deployment status is shown as text only
 }
 
 // Content rendering methods
@@ -612,46 +608,45 @@ func (m *Model) renderDeploymentContent() string {
 	if m.appConfig.DeploymentController == nil {
 		return "No deployment controller available"
 	}
-	
+
 	var content strings.Builder
-	
+
 	// Status with styling
 	status := m.appConfig.DeploymentController.Status()
 	statusStyle := lipgloss.NewStyle().Foreground(m.theme.Highlight).Bold(true)
 	content.WriteString(fmt.Sprintf("Status: %s\n", statusStyle.Render(status.String())))
-	
-	// Progress bar if active
+
+	// Show deployment progress with progress bar
 	isActive, elapsedSeconds, totalSeconds, progressPercent := m.appConfig.DeploymentController.GetDeploymentProgress()
 	if isActive {
 		remainingSeconds := totalSeconds - elapsedSeconds
-		
-		// Style the progress label
-		progressLabelStyle := lipgloss.NewStyle().Foreground(m.theme.Primary)
-		content.WriteString(fmt.Sprintf("\n%s\n", progressLabelStyle.Render("Progress:")))
-		
-		// Show progress bar
-		content.WriteString(fmt.Sprintf("%s\n", m.deploymentProgress.View()))
-		
-		// Show percentage and time
-		infoStyle := lipgloss.NewStyle().Foreground(m.theme.Secondary)
-		content.WriteString(fmt.Sprintf("%s\n", 
-			infoStyle.Render(fmt.Sprintf("%d%% (%ds remaining)", progressPercent, remainingSeconds))))
+
+		// Convert percentage to decimal for progress bar
+		progressDecimal := float64(progressPercent) / 100.0
+
+		// Render progress bar
+		progressBar := m.progressBar.ViewAs(progressDecimal)
+
+		// Style the progress text
+		progressStyle := lipgloss.NewStyle().Foreground(m.theme.Primary)
+		content.WriteString(fmt.Sprintf("\n%s %d%% (%ds remaining)\n%s\n",
+			progressStyle.Render("Progress:"), progressPercent, remainingSeconds, progressBar))
 	}
-	
+
 	content.WriteString("\n")
-	
+
 	// Current and previous deployments with better formatting
 	headerStyle := lipgloss.NewStyle().Foreground(m.theme.Highlight).Bold(true)
 	valueStyle := lipgloss.NewStyle().Foreground(m.theme.Success)
-	
+
 	current := m.appConfig.DeploymentController.Current()
 	previous := m.appConfig.DeploymentController.Previous()
-	
+
 	if current != nil {
-		content.WriteString(fmt.Sprintf("%s %s\n", 
+		content.WriteString(fmt.Sprintf("%s %s\n",
 			headerStyle.Render(fmt.Sprintf("Current (v%d):", current.ID)),
 			valueStyle.Render(current.LaunchedAt.Format("15:04:05"))))
-		
+
 		// Add proxy stats for current if available
 		stats := m.appConfig.Telemetry.GetStatsCollector().Export()
 		proxyStats := m.getProxyStatsForDeployment(current.ID, stats)
@@ -659,16 +654,16 @@ func (m *Model) renderDeploymentContent() string {
 			content.WriteString(proxyStats)
 		}
 	} else {
-		content.WriteString(fmt.Sprintf("%s %s\n", 
-			headerStyle.Render("Current:"), 
+		content.WriteString(fmt.Sprintf("%s %s\n",
+			headerStyle.Render("Current:"),
 			lipgloss.NewStyle().Foreground(m.theme.Subtle).Render("None")))
 	}
-	
+
 	if previous != nil {
-		content.WriteString(fmt.Sprintf("%s %s\n", 
+		content.WriteString(fmt.Sprintf("%s %s\n",
 			headerStyle.Render(fmt.Sprintf("Previous (v%d):", previous.ID)),
 			valueStyle.Render(previous.LaunchedAt.Format("15:04:05"))))
-		
+
 		// Add proxy stats for previous if available
 		stats := m.appConfig.Telemetry.GetStatsCollector().Export()
 		proxyStats := m.getProxyStatsForDeployment(previous.ID, stats)
@@ -676,11 +671,11 @@ func (m *Model) renderDeploymentContent() string {
 			content.WriteString(proxyStats)
 		}
 	} else {
-		content.WriteString(fmt.Sprintf("%s %s\n", 
-			headerStyle.Render("Previous:"), 
+		content.WriteString(fmt.Sprintf("%s %s\n",
+			headerStyle.Render("Previous:"),
 			lipgloss.NewStyle().Foreground(m.theme.Subtle).Render("None")))
 	}
-	
+
 	return content.String()
 }
 
@@ -692,14 +687,14 @@ func (m *Model) getProxyStatsForDeployment(deploymentID int, stats telemetry.Sta
 			proxyStats = append(proxyStats, stat)
 		}
 	}
-	
+
 	if len(proxyStats) == 0 {
 		return ""
 	}
-	
+
 	var content strings.Builder
 	labelStyle := lipgloss.NewStyle().Foreground(m.theme.Secondary).Margin(0, 0, 0, 2)
-	
+
 	for _, stat := range proxyStats {
 		statusIcon := "✓"
 		statusColor := m.theme.Success
@@ -707,9 +702,9 @@ func (m *Model) getProxyStatsForDeployment(deploymentID int, stats telemetry.Sta
 			statusIcon = "✗"
 			statusColor = m.theme.Error
 		}
-		
+
 		statusStyle := lipgloss.NewStyle().Foreground(statusColor)
-		
+
 		content.WriteString(fmt.Sprintf("%s %s %s: %d reqs, %dms p95\n",
 			labelStyle.Render(stat.Operation),
 			statusStyle.Render(statusIcon),
@@ -717,7 +712,7 @@ func (m *Model) getProxyStatsForDeployment(deploymentID int, stats telemetry.Sta
 			stat.Metrics.TotalCount,
 			stat.Metrics.DurationP95))
 	}
-	
+
 	return content.String()
 }
 
@@ -725,35 +720,35 @@ func (m *Model) renderAccountsContent() string {
 	if m.appConfig.AccountStore == nil || m.appConfig.NoteStore == nil {
 		return "No store available"
 	}
-	
+
 	topAccounts, err := store.GetTopAccountsByNotes(m.ctx, m.appConfig.AccountStore, m.appConfig.NoteStore, 10)
 	if err != nil {
 		return "Error loading accounts"
 	}
-	
+
 	if len(topAccounts) == 0 {
 		return "No accounts found..."
 	}
-	
+
 	var content strings.Builder
 	content.WriteString("Account Name              Notes\n")
 	content.WriteString("─────────────────────────────────\n")
-	
+
 	for i, accountStats := range topAccounts {
 		if i >= 10 {
 			break
 		}
-		
+
 		name := accountStats.Account.Name
 		if len(name) > 23 {
 			name = name[:20] + "..."
 		}
-		
+
 		content.WriteString(fmt.Sprintf("%-25s %d\n", name, accountStats.NoteCount))
 	}
-	
+
 	content.WriteString(fmt.Sprintf("\nTotal: %d accounts", len(topAccounts)))
-	
+
 	return content.String()
 }
 
@@ -762,20 +757,20 @@ func (m *Model) renderLogsContent(maxHeight int) string {
 		waitingStyle := lipgloss.NewStyle().Foreground(m.theme.Subtle)
 		return waitingStyle.Render("Waiting for logs...")
 	}
-	
+
 	// Show the most recent logs that fit in the available height
 	startIdx := 0
 	if len(m.logs) > maxHeight {
 		startIdx = len(m.logs) - maxHeight
 	}
-	
+
 	// Apply basic styling to logs
 	logStyle := lipgloss.NewStyle().Foreground(m.theme.Primary)
 	var styledLogs []string
 	for _, log := range m.logs[startIdx:] {
 		styledLogs = append(styledLogs, logStyle.Render(log))
 	}
-	
+
 	return strings.Join(styledLogs, "\n")
 }
 
@@ -784,20 +779,20 @@ func (m *Model) adjustTableSizes() {
 	if m.width == 0 || m.height == 0 {
 		return
 	}
-	
+
 	// Calculate available space
 	helpHeight := 3
 	availableHeight := m.height - helpHeight - 2
 	availableWidth := m.width - 4
-	
+
 	var apiTableWidth, apiTableHeight, dataStoreTableWidth, dataStoreTableHeight int
-	
+
 	// Determine layout and set appropriate sizes
 	if availableWidth < 120 || availableHeight < 30 {
 		// Vertical layout for small screens
 		panelHeight := (availableHeight - 8) / 4
 		panelWidth := availableWidth - 4
-		
+
 		apiTableWidth = panelWidth - 4
 		apiTableHeight = panelHeight - 6
 		dataStoreTableWidth = panelWidth - 4
@@ -806,13 +801,13 @@ func (m *Model) adjustTableSizes() {
 		// Grid layout for large screens
 		panelWidth := (availableWidth - 6) / 2
 		topPanelHeight := (availableHeight - 12) * 2 / 3
-		
+
 		apiTableWidth = panelWidth - 4
 		apiTableHeight = topPanelHeight/2 - 6
 		dataStoreTableWidth = panelWidth - 4
 		dataStoreTableHeight = topPanelHeight/2 - 6
 	}
-	
+
 	// Ensure minimum sizes
 	if apiTableWidth < 30 {
 		apiTableWidth = 30
@@ -826,10 +821,10 @@ func (m *Model) adjustTableSizes() {
 	if dataStoreTableHeight < 3 {
 		dataStoreTableHeight = 3
 	}
-	
+
 	// Adjust column widths based on available width
 	m.adjustColumnWidths(apiTableWidth, dataStoreTableWidth)
-	
+
 	// Recreate tables with new dimensions and current data
 	m.recreateTablesWithNewSize(apiTableWidth, apiTableHeight, dataStoreTableWidth, dataStoreTableHeight)
 }
@@ -845,8 +840,8 @@ func (m *Model) adjustColumnWidths(apiWidth, dataStoreWidth int) {
 		{Title: "RPM", Width: min(6, apiWidth/10)},
 		{Title: "P95ms", Width: min(8, apiWidth/8)},
 	}
-	
-	// Calculate column widths for data store table  
+
+	// Calculate column widths for data store table
 	dataStoreColumns := []table.Column{
 		{Title: "Store", Width: min(15, dataStoreWidth/4)},
 		{Title: "Operation", Width: min(12, dataStoreWidth/5)},
@@ -855,7 +850,7 @@ func (m *Model) adjustColumnWidths(apiWidth, dataStoreWidth int) {
 		{Title: "RPM", Width: min(6, dataStoreWidth/10)},
 		{Title: "P95ms", Width: min(8, dataStoreWidth/8)},
 	}
-	
+
 	// Update the table columns by recreating with new column definitions
 	// We'll store these for use in recreateTablesWithNewSize
 	m.apiColumns = apiColumns
@@ -876,7 +871,7 @@ func (m *Model) recreateTablesWithNewSize(apiWidth, apiHeight, dataStoreWidth, d
 		Foreground(m.theme.Primary).
 		Background(m.theme.Accent).
 		Bold(false)
-	
+
 	dataStoreTableStyles := table.DefaultStyles()
 	dataStoreTableStyles.Header = dataStoreTableStyles.Header.
 		BorderStyle(lipgloss.NormalBorder()).
@@ -888,7 +883,7 @@ func (m *Model) recreateTablesWithNewSize(apiWidth, apiHeight, dataStoreWidth, d
 		Foreground(m.theme.Primary).
 		Background(m.theme.Accent).
 		Bold(false)
-	
+
 	// Recreate API table
 	m.apiTable = table.New(
 		table.WithColumns(m.apiColumns),
@@ -897,7 +892,7 @@ func (m *Model) recreateTablesWithNewSize(apiWidth, apiHeight, dataStoreWidth, d
 		table.WithHeight(apiHeight),
 		table.WithStyles(apiTableStyles),
 	)
-	
+
 	// Recreate data store table
 	m.dataStoreTable = table.New(
 		table.WithColumns(m.dataStoreColumns),
@@ -915,3 +910,4 @@ func min(a, b int) int {
 	}
 	return b
 }
+
