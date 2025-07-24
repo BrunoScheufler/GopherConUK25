@@ -54,7 +54,7 @@ func (c *CLIApp) Setup() {
 	// Create stats view (top left pane)
 	c.statsView = tview.NewTextView()
 	c.statsView.SetBorder(true)
-	c.statsView.SetTitle(" System Stats ")
+	c.statsView.SetTitle(" API requests ")
 	c.statsView.SetTitleAlign(tview.AlignLeft)
 	c.statsView.SetDynamicColors(true)
 	c.statsView.SetTextAlign(tview.AlignLeft)
