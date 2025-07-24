@@ -542,7 +542,7 @@ func (m *Model) updateDataStoreStats() {
 
 	stats := m.appConfig.Telemetry.GetStatsCollector().Export()
 
-	// Sort data store stats by total count (descending)
+	// Sort data store stats alphabetically by operation
 	var dataStoreStats []*telemetry.DataStoreStats
 	for _, stat := range stats.DataStoreAccess {
 		dataStoreStats = append(dataStoreStats, stat)
@@ -550,7 +550,7 @@ func (m *Model) updateDataStoreStats() {
 
 	for i := 0; i < len(dataStoreStats); i++ {
 		for j := i + 1; j < len(dataStoreStats); j++ {
-			if dataStoreStats[i].Metrics.TotalCount < dataStoreStats[j].Metrics.TotalCount {
+			if dataStoreStats[i].Operation > dataStoreStats[j].Operation {
 				dataStoreStats[i], dataStoreStats[j] = dataStoreStats[j], dataStoreStats[i]
 			}
 		}
@@ -714,8 +714,11 @@ func (m *Model) createProxyStatsTables(current, previous *proxy.DataProxyProcess
 		return ""
 	}
 	
-	// Join tables horizontally
-	return lipgloss.JoinHorizontal(lipgloss.Top, tables...)
+	// Join tables horizontally with spacing
+	if len(tables) == 1 {
+		return tables[0]
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, tables[0], strings.Repeat(" ", 4), tables[1])
 }
 
 // createSingleProxyStatsTable creates a table for a single deployment version
@@ -739,6 +742,15 @@ func (m *Model) createSingleProxyStatsTable(deployment *proxy.DataProxyProcess, 
 		{Title: "Total", Width: 8},
 		{Title: "RPM", Width: 6},
 		{Title: "P95ms", Width: 8},
+	}
+
+	// Sort proxy stats alphabetically by operation
+	for i := 0; i < len(proxyStats); i++ {
+		for j := i + 1; j < len(proxyStats); j++ {
+			if proxyStats[i].Operation > proxyStats[j].Operation {
+				proxyStats[i], proxyStats[j] = proxyStats[j], proxyStats[i]
+			}
+		}
 	}
 
 	// Create table rows
