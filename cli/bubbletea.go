@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/brunoscheufler/gopherconuk25/constants"
+	"github.com/brunoscheufler/gopherconuk25/proxy"
 	"github.com/brunoscheufler/gopherconuk25/telemetry"
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
@@ -623,48 +624,157 @@ func (m *Model) renderDeploymentContent() string {
 
 	content.WriteString("\n")
 
-	// Current and previous deployments with better formatting
+	// Render deployments side by side
+	deploymentViews := m.renderDeploymentVersions()
+	content.WriteString(deploymentViews)
+
+	return content.String()
+}
+
+// renderDeploymentVersions creates side-by-side deployment version displays
+func (m *Model) renderDeploymentVersions() string {
 	headerStyle := lipgloss.NewStyle().Foreground(m.theme.Highlight).Bold(true)
 	valueStyle := lipgloss.NewStyle().Foreground(m.theme.Success)
+	subtleStyle := lipgloss.NewStyle().Foreground(m.theme.Subtle)
 
 	current := m.appConfig.DeploymentController.Current()
 	previous := m.appConfig.DeploymentController.Previous()
+	stats := m.appConfig.Telemetry.GetStatsCollector().Export()
 
+	// Build current deployment column
+	var currentContent strings.Builder
+	currentContent.WriteString(headerStyle.Render("Current") + "\n")
 	if current != nil {
-		content.WriteString(fmt.Sprintf("%s %s\n",
-			headerStyle.Render(fmt.Sprintf("Current (v%d):", current.ID)),
+		currentContent.WriteString(fmt.Sprintf("%s %s\n",
+			lipgloss.NewStyle().Foreground(m.theme.Primary).Render(fmt.Sprintf("v%d:", current.ID)),
 			valueStyle.Render(current.LaunchedAt.Format("15:04:05"))))
-
-		// Add proxy stats for current if available
-		stats := m.appConfig.Telemetry.GetStatsCollector().Export()
-		proxyStats := m.getProxyStatsForDeployment(current.ID, stats)
-		if proxyStats != "" {
-			content.WriteString(proxyStats)
-		}
 	} else {
-		content.WriteString(fmt.Sprintf("%s %s\n",
-			headerStyle.Render("Current:"),
-			lipgloss.NewStyle().Foreground(m.theme.Subtle).Render("None")))
+		currentContent.WriteString(subtleStyle.Render("None") + "\n")
 	}
 
+	// Build previous deployment column  
+	var previousContent strings.Builder
+	previousContent.WriteString(headerStyle.Render("Previous") + "\n")
 	if previous != nil {
-		content.WriteString(fmt.Sprintf("%s %s\n",
-			headerStyle.Render(fmt.Sprintf("Previous (v%d):", previous.ID)),
+		previousContent.WriteString(fmt.Sprintf("%s %s\n",
+			lipgloss.NewStyle().Foreground(m.theme.Primary).Render(fmt.Sprintf("v%d:", previous.ID)),
 			valueStyle.Render(previous.LaunchedAt.Format("15:04:05"))))
-
-		// Add proxy stats for previous if available
-		stats := m.appConfig.Telemetry.GetStatsCollector().Export()
-		proxyStats := m.getProxyStatsForDeployment(previous.ID, stats)
-		if proxyStats != "" {
-			content.WriteString(proxyStats)
-		}
 	} else {
-		content.WriteString(fmt.Sprintf("%s %s\n",
-			headerStyle.Render("Previous:"),
-			lipgloss.NewStyle().Foreground(m.theme.Subtle).Render("None")))
+		previousContent.WriteString(subtleStyle.Render("None") + "\n")
 	}
 
-	return content.String()
+	// Join deployment info horizontally with spacing
+	deploymentInfo := lipgloss.JoinHorizontal(lipgloss.Top, 
+		currentContent.String(),
+		strings.Repeat(" ", 10), // Spacing between columns
+		previousContent.String())
+
+	// Create proxy stats tables - one per version
+	proxyTables := m.createProxyStatsTables(current, previous, stats)
+	
+	if proxyTables != "" {
+		return deploymentInfo + "\n\n" + proxyTables
+	}
+	
+	return deploymentInfo
+}
+
+// createProxyStatsTables creates separate tables for each deployment version
+func (m *Model) createProxyStatsTables(current, previous *proxy.DataProxyProcess, stats telemetry.Stats) string {
+	var tables []string
+	
+	// Create table for current deployment
+	if current != nil {
+		currentTable := m.createSingleProxyStatsTable(current, stats, "Current")
+		if currentTable != "" {
+			tables = append(tables, currentTable)
+		}
+	}
+	
+	// Create table for previous deployment
+	if previous != nil {
+		previousTable := m.createSingleProxyStatsTable(previous, stats, "Previous")
+		if previousTable != "" {
+			tables = append(tables, previousTable)
+		}
+	}
+	
+	if len(tables) == 0 {
+		return ""
+	}
+	
+	// Join tables horizontally
+	return lipgloss.JoinHorizontal(lipgloss.Top, tables...)
+}
+
+// createSingleProxyStatsTable creates a table for a single deployment version
+func (m *Model) createSingleProxyStatsTable(deployment *proxy.DataProxyProcess, stats telemetry.Stats, title string) string {
+	// Collect proxy stats for this deployment
+	var proxyStats []*telemetry.ProxyStats
+	for _, stat := range stats.ProxyAccess {
+		if stat.ProxyID == deployment.ID {
+			proxyStats = append(proxyStats, stat)
+		}
+	}
+
+	if len(proxyStats) == 0 {
+		return ""
+	}
+
+	// Create table columns (same as API requests style)
+	proxyColumns := []table.Column{
+		{Title: "Operation", Width: 12},
+		{Title: "Status", Width: 6},
+		{Title: "Total", Width: 8},
+		{Title: "RPM", Width: 6},
+		{Title: "P95ms", Width: 8},
+	}
+
+	// Create table rows
+	var rows []table.Row
+	for _, stat := range proxyStats {
+		statusIcon := "✓"
+		if !stat.Success {
+			statusIcon = "✗"
+		}
+		
+		row := table.Row{
+			stat.Operation,
+			statusIcon,
+			fmt.Sprintf("%d", stat.Metrics.TotalCount),
+			fmt.Sprintf("%d", stat.Metrics.RequestsPerMin),
+			fmt.Sprintf("%d", stat.Metrics.DurationP95),
+		}
+		rows = append(rows, row)
+	}
+
+	// Create table styles (same as API requests)
+	proxyTableStyles := table.DefaultStyles()
+	proxyTableStyles.Header = proxyTableStyles.Header.
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(m.theme.Border).
+		BorderBottom(true).
+		Bold(false).
+		Foreground(m.theme.Highlight)
+	proxyTableStyles.Selected = proxyTableStyles.Selected.
+		Foreground(m.theme.Primary).
+		Background(m.theme.Accent).
+		Bold(false)
+
+	// Create the table
+	proxyTable := table.New(
+		table.WithColumns(proxyColumns),
+		table.WithRows(rows),
+		table.WithFocused(false),
+		table.WithHeight(len(rows)),
+		table.WithStyles(proxyTableStyles),
+	)
+
+	// Add title above the table
+	titleStyle := lipgloss.NewStyle().Foreground(m.theme.Highlight).Bold(true)
+	tableTitle := titleStyle.Render(fmt.Sprintf("%s (v%d) Proxy Stats", title, deployment.ID))
+	
+	return tableTitle + "\n" + proxyTable.View()
 }
 
 // getProxyStatsForDeployment returns formatted proxy stats for a specific deployment
