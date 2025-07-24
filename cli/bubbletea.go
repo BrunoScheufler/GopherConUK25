@@ -302,6 +302,13 @@ func (m *Model) renderLayout() string {
 		Padding(1).
 		Margin(0, 1)
 
+	// Special style for logs panel with no vertical padding
+	logsPanelStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(m.theme.Border).
+		Padding(0, 1).
+		Margin(0, 1)
+
 	titleStyle := lipgloss.NewStyle().
 		Foreground(m.theme.Highlight).
 		Bold(true)
@@ -317,15 +324,18 @@ func (m *Model) renderLayout() string {
 
 	// Determine layout based on screen size
 	if availableWidth < 120 || availableHeight < 30 {
-		return m.renderVerticalLayout(panelStyle, titleStyle, helpStyle, availableWidth, availableHeight)
+		return m.renderVerticalLayout(panelStyle, logsPanelStyle, titleStyle, helpStyle, availableWidth, availableHeight)
 	}
 
-	return m.renderGridLayout(panelStyle, titleStyle, helpStyle, availableWidth, availableHeight)
+	return m.renderGridLayout(panelStyle, logsPanelStyle, titleStyle, helpStyle, availableWidth, availableHeight)
 }
 
 // renderVerticalLayout renders all panels vertically for small screens
-func (m *Model) renderVerticalLayout(panelStyle, titleStyle, helpStyle lipgloss.Style, width, height int) string {
-	panelHeight := (height - 6) / 3 // Divide among 3 panels with some margin
+func (m *Model) renderVerticalLayout(panelStyle, logsPanelStyle, titleStyle, helpStyle lipgloss.Style, width, height int) string {
+	// Reserve enough space for API and data store tables, give rest to logs
+	minPanelHeight := 12 // Minimum height needed for tables to show content
+	panelHeight := max(minPanelHeight, (height - 20) / 4) // Ensure minimum height
+	logsPanelHeight := height - (3 * panelHeight) - 8 // Logs take remaining space
 	panelWidth := width - 4
 
 	// Update table sizes
@@ -351,8 +361,8 @@ func (m *Model) renderVerticalLayout(panelStyle, titleStyle, helpStyle lipgloss.
 		titleStyle.Render("Deployments [Press 'd' to deploy]") + "\n" + m.renderDeploymentContent(),
 	)
 
-	logsPanel := panelStyle.Width(panelWidth).Height(panelHeight).Render(
-		titleStyle.Render("Logs") + "\n" + m.renderLogsContent(panelHeight-4),
+	logsPanel := logsPanelStyle.Width(panelWidth).Height(logsPanelHeight).Render(
+		titleStyle.Render("Logs") + "\n" + m.renderLogsContent(logsPanelHeight-2),
 	)
 
 	// Stack vertically in the requested order
@@ -371,12 +381,13 @@ func (m *Model) renderVerticalLayout(panelStyle, titleStyle, helpStyle lipgloss.
 }
 
 // renderGridLayout renders panels with API requests & data store access on top, deployment in middle, logs at bottom
-func (m *Model) renderGridLayout(panelStyle, titleStyle, helpStyle lipgloss.Style, width, height int) string {
-	// Calculate panel dimensions
-	panelWidth := (width - 6) / 2           // Two columns with margins for top row
-	topPanelHeight := (height - 16) / 3     // Top row gets 1/3
-	middlePanelHeight := (height - 16) / 3  // Middle deployment panel gets 1/3
-	logsPanelHeight := (height - 16) / 3    // Logs get 1/3
+func (m *Model) renderGridLayout(panelStyle, logsPanelStyle, titleStyle, helpStyle lipgloss.Style, width, height int) string {
+	// Calculate panel dimensions - ensure tables have enough space
+	panelWidth := (width - 6) / 2                                    // Two columns with margins for top row
+	minTopPanelHeight := 12 // Minimum height needed for tables to show content
+	topPanelHeight := max(minTopPanelHeight, (height - 20) / 4)      // Top row gets space for content
+	middlePanelHeight := max(8, (height - 20) / 6)                   // Middle deployment panel gets smaller portion
+	logsPanelHeight := height - topPanelHeight - middlePanelHeight - 12 // Logs take remaining space
 
 	// Update table sizes
 	m.apiTable = table.New(table.WithColumns(m.apiTable.Columns()),
@@ -406,8 +417,8 @@ func (m *Model) renderGridLayout(panelStyle, titleStyle, helpStyle lipgloss.Styl
 	topRow := lipgloss.JoinHorizontal(lipgloss.Top, apiPanel, dataStorePanel)
 
 	// Render logs panel
-	logsPanel := panelStyle.Width(width - 2).Height(logsPanelHeight).Render(
-		titleStyle.Render("Logs") + "\n" + m.renderLogsContent(logsPanelHeight-4),
+	logsPanel := logsPanelStyle.Width(width - 2).Height(logsPanelHeight).Render(
+		titleStyle.Render("Logs") + "\n" + m.renderLogsContent(logsPanelHeight-2),
 	)
 
 	// Combine all sections
@@ -983,6 +994,14 @@ func (m *Model) recreateTablesWithNewSize(apiWidth, apiHeight, dataStoreWidth, d
 // min returns the smaller of two integers
 func min(a, b int) int {
 	if a < b {
+		return a
+	}
+	return b
+}
+
+// max returns the larger of two integers
+func max(a, b int) int {
+	if a > b {
 		return a
 	}
 	return b
