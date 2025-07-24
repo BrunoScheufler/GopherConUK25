@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/brunoscheufler/gopherconuk25/constants"
 	"github.com/brunoscheufler/gopherconuk25/proxy"
 	"github.com/brunoscheufler/gopherconuk25/store"
 	"github.com/brunoscheufler/gopherconuk25/telemetry"
@@ -72,15 +71,37 @@ func (s *Server) SetupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /accounts/{accountId}/notes/{noteId}", s.handleDeleteNote)
 }
 
+// responseWriter captures the status code for metrics
+type responseWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (rw *responseWriter) WriteHeader(code int) {
+	rw.status = code
+	rw.ResponseWriter.WriteHeader(code)
+}
+
 func (s *Server) LoggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		s.telemetry.StatsCollector.IncrementRequest()
-		next.ServeHTTP(w, r)
+		rw := &responseWriter{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rw, r)
+		duration := time.Since(start)
+		
+		// Track API request metrics with the new interface
+		s.telemetry.GetStatsCollector().TrackAPIRequest(
+			r.Method,
+			r.URL.Path,
+			duration,
+			rw.status,
+		)
+		
 		s.logger.Info("HTTP request",
 			"method", r.Method,
 			"path", r.URL.Path,
-			"duration", time.Since(start),
+			"duration", duration,
+			"status", rw.status,
 		)
 	})
 }
@@ -189,7 +210,6 @@ func (s *Server) handleListAccounts(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusInternalServerError, "Failed to list accounts")
 		return
 	}
-	s.telemetry.GetStatsCollector().IncrementAccountRead()
 	s.writeJSON(w, http.StatusOK, accounts)
 }
 
@@ -215,7 +235,6 @@ func (s *Server) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.telemetry.GetStatsCollector().IncrementAccountWrite()
 	s.writeJSON(w, http.StatusCreated, account)
 }
 
@@ -249,7 +268,6 @@ func (s *Server) handleUpdateAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.telemetry.GetStatsCollector().IncrementAccountWrite()
 	s.writeJSON(w, http.StatusOK, account)
 }
 
@@ -266,7 +284,6 @@ func (s *Server) handleListNotes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.telemetry.GetStatsCollector().IncrementNoteRead(constants.NoteShard1)
 	s.writeJSON(w, http.StatusOK, notes)
 }
 
@@ -294,7 +311,6 @@ func (s *Server) handleGetNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.telemetry.GetStatsCollector().IncrementNoteRead(constants.NoteShard1)
 	s.writeJSON(w, http.StatusOK, note)
 }
 
@@ -332,7 +348,6 @@ func (s *Server) handleCreateNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.telemetry.GetStatsCollector().IncrementNoteWrite(constants.NoteShard1)
 	s.writeJSON(w, http.StatusCreated, note)
 }
 
@@ -374,7 +389,6 @@ func (s *Server) handleUpdateNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.telemetry.GetStatsCollector().IncrementNoteWrite(constants.NoteShard1)
 	s.writeJSON(w, http.StatusOK, note)
 }
 
@@ -402,6 +416,5 @@ func (s *Server) handleDeleteNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.telemetry.GetStatsCollector().IncrementNoteWrite(constants.NoteShard1)
 	w.WriteHeader(http.StatusNoContent)
 }
