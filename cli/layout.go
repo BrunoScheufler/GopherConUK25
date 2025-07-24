@@ -190,9 +190,6 @@ func (c *CLIApp) Stop() {
 	c.app.Stop()
 }
 
-func (c *CLIApp) IncrementRequest() {
-	c.telemetry.StatsCollector.IncrementRequest()
-}
 
 func (c *CLIApp) statsUpdateLoop() {
 	ticker := time.NewTicker(constants.DefaultStatsInterval)
@@ -224,10 +221,7 @@ func (c *CLIApp) accountsUpdateLoop() {
 }
 
 func (c *CLIApp) updateStats() {
-	stats, err := c.telemetry.StatsCollector.CollectStats(c.ctx)
-	if err != nil {
-		return
-	}
+	stats := c.telemetry.GetStatsCollector().Export()
 
 	theme := GetTheme(c.options.Theme)
 	c.app.QueueUpdateDraw(func() {
@@ -453,17 +447,17 @@ func (c *CLIApp) updateShardMetrics() {
 }
 
 func (c *CLIApp) getProxyStats(proxyID int) *telemetry.ProxyStats {
-	if c.telemetry == nil || c.telemetry.StatsCollector == nil {
+	if c.telemetry == nil {
 		return nil
 	}
 
-	stats, err := c.telemetry.StatsCollector.CollectStats(c.ctx)
-	if err != nil {
-		return nil
-	}
+	stats := c.telemetry.GetStatsCollector().Export()
 
-	if proxyStats, exists := stats.ProxyStats[proxyID]; exists {
-		return proxyStats
+	// Find matching proxy stats by ID
+	for _, proxyStats := range stats.ProxyAccess {
+		if proxyStats.ProxyID == proxyID {
+			return &proxyStats
+		}
 	}
 	return nil
 }
@@ -485,7 +479,8 @@ func (c *CLIApp) formatShardMetrics(theme Theme) string {
 		return "No telemetry available"
 	}
 
-	dataStoreStats := c.telemetry.StatsCollector.CollectDataStoreStats()
+	stats := c.telemetry.GetStatsCollector().Export()
+	dataStoreStats := stats.DataStoreAccess
 	if dataStoreStats == nil {
 		return "No shard stats available"
 	}
