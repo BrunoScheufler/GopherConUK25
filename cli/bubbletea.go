@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/brunoscheufler/gopherconuk25/constants"
-	"github.com/brunoscheufler/gopherconuk25/store"
 	"github.com/brunoscheufler/gopherconuk25/telemetry"
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
@@ -50,7 +49,6 @@ type Model struct {
 
 	// Last update times to control refresh rates
 	lastStatsUpdate      time.Time
-	lastAccountsUpdate   time.Time
 	lastDeploymentUpdate time.Time
 	lastShardUpdate      time.Time
 }
@@ -269,11 +267,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.updateDeploymentStatus()
 		}
 
-		if now.Sub(m.lastAccountsUpdate) >= 5*time.Second {
-			m.lastAccountsUpdate = now
-			// Account updates can be added here if needed
-		}
-
 		return m, m.tickCmd()
 
 	case logMsg:
@@ -330,7 +323,7 @@ func (m *Model) renderLayout() string {
 
 // renderVerticalLayout renders all panels vertically for small screens
 func (m *Model) renderVerticalLayout(panelStyle, titleStyle, helpStyle lipgloss.Style, width, height int) string {
-	panelHeight := (height - 8) / 4 // Divide among 4 panels with some margin
+	panelHeight := (height - 6) / 3 // Divide among 3 panels with some margin
 	panelWidth := width - 4
 
 	// Update table sizes
@@ -343,7 +336,7 @@ func (m *Model) renderVerticalLayout(panelStyle, titleStyle, helpStyle lipgloss.
 		table.WithWidth(panelWidth-4),
 		table.WithHeight(panelHeight-6))
 
-	// Render each panel
+	// Render each panel in desired order: API requests & data store access (top), deployment (middle), logs (bottom)
 	apiPanel := panelStyle.Width(panelWidth).Height(panelHeight).Render(
 		titleStyle.Render("API Requests") + "\n" + m.apiTable.View(),
 	)
@@ -360,7 +353,7 @@ func (m *Model) renderVerticalLayout(panelStyle, titleStyle, helpStyle lipgloss.
 		titleStyle.Render("Logs") + "\n" + m.renderLogsContent(panelHeight-4),
 	)
 
-	// Stack vertically
+	// Stack vertically in the requested order
 	content := lipgloss.JoinVertical(
 		lipgloss.Left,
 		apiPanel,
@@ -375,45 +368,40 @@ func (m *Model) renderVerticalLayout(panelStyle, titleStyle, helpStyle lipgloss.
 	return lipgloss.JoinVertical(lipgloss.Left, content, help)
 }
 
-// renderGridLayout renders panels in a 2x2 grid with logs at bottom
+// renderGridLayout renders panels with API requests & data store access on top, deployment in middle, logs at bottom
 func (m *Model) renderGridLayout(panelStyle, titleStyle, helpStyle lipgloss.Style, width, height int) string {
 	// Calculate panel dimensions
-	panelWidth := (width - 6) / 2           // Two columns with margins
-	topPanelHeight := (height - 12) * 2 / 3 // Top section gets 2/3
-	logsPanelHeight := (height - 12) / 3    // Logs get 1/3
+	panelWidth := (width - 6) / 2           // Two columns with margins for top row
+	topPanelHeight := (height - 16) / 3     // Top row gets 1/3
+	middlePanelHeight := (height - 16) / 3  // Middle deployment panel gets 1/3
+	logsPanelHeight := (height - 16) / 3    // Logs get 1/3
 
 	// Update table sizes
 	m.apiTable = table.New(table.WithColumns(m.apiTable.Columns()),
 		table.WithRows(m.apiTable.Rows()),
 		table.WithWidth(panelWidth-4),
-		table.WithHeight(topPanelHeight/2-6))
+		table.WithHeight(topPanelHeight-6))
 	m.dataStoreTable = table.New(table.WithColumns(m.dataStoreTable.Columns()),
 		table.WithRows(m.dataStoreTable.Rows()),
 		table.WithWidth(panelWidth-4),
-		table.WithHeight(topPanelHeight/2-6))
+		table.WithHeight(topPanelHeight-6))
 
-	// Render top row panels
-	apiPanel := panelStyle.Width(panelWidth).Height(topPanelHeight / 2).Render(
+	// Render top row panels (API requests and Data Store Access)
+	apiPanel := panelStyle.Width(panelWidth).Height(topPanelHeight).Render(
 		titleStyle.Render("API Requests") + "\n" + m.apiTable.View(),
 	)
 
-	accountsPanel := panelStyle.Width(panelWidth).Height(topPanelHeight / 2).Render(
-		titleStyle.Render("Top Accounts") + "\n" + m.renderAccountsContent(),
+	dataStorePanel := panelStyle.Width(panelWidth).Height(topPanelHeight).Render(
+		titleStyle.Render("Data Store Access") + "\n" + m.dataStoreTable.View(),
 	)
 
-	// Render middle row panels
-	deploymentPanel := panelStyle.Width(panelWidth).Height(topPanelHeight / 2).Render(
+	// Render middle deployment panel (full width)
+	deploymentPanel := panelStyle.Width(width - 2).Height(middlePanelHeight).Render(
 		titleStyle.Render("Deployments [Press 'd' to deploy]") + "\n" + m.renderDeploymentContent(),
 	)
 
-	dataStorePanel := panelStyle.Width(panelWidth).Height(topPanelHeight / 2).Render(
-		titleStyle.Render("Data Store Access by Shard") + "\n" + m.dataStoreTable.View(),
-	)
-
-	// Create grid layout
-	topRow := lipgloss.JoinHorizontal(lipgloss.Top, apiPanel, accountsPanel)
-	middleRow := lipgloss.JoinHorizontal(lipgloss.Top, deploymentPanel, dataStorePanel)
-	topSection := lipgloss.JoinVertical(lipgloss.Left, topRow, middleRow)
+	// Create layout
+	topRow := lipgloss.JoinHorizontal(lipgloss.Top, apiPanel, dataStorePanel)
 
 	// Render logs panel
 	logsPanel := panelStyle.Width(width - 2).Height(logsPanelHeight).Render(
@@ -421,7 +409,7 @@ func (m *Model) renderGridLayout(panelStyle, titleStyle, helpStyle lipgloss.Styl
 	)
 
 	// Combine all sections
-	content := lipgloss.JoinVertical(lipgloss.Left, topSection, logsPanel)
+	content := lipgloss.JoinVertical(lipgloss.Left, topRow, deploymentPanel, logsPanel)
 
 	// Add help at bottom
 	help := helpStyle.Render(m.help.View(keys))
@@ -716,41 +704,6 @@ func (m *Model) getProxyStatsForDeployment(deploymentID int, stats telemetry.Sta
 	return content.String()
 }
 
-func (m *Model) renderAccountsContent() string {
-	if m.appConfig.AccountStore == nil || m.appConfig.NoteStore == nil {
-		return "No store available"
-	}
-
-	topAccounts, err := store.GetTopAccountsByNotes(m.ctx, m.appConfig.AccountStore, m.appConfig.NoteStore, 10)
-	if err != nil {
-		return "Error loading accounts"
-	}
-
-	if len(topAccounts) == 0 {
-		return "No accounts found..."
-	}
-
-	var content strings.Builder
-	content.WriteString("Account Name              Notes\n")
-	content.WriteString("─────────────────────────────────\n")
-
-	for i, accountStats := range topAccounts {
-		if i >= 10 {
-			break
-		}
-
-		name := accountStats.Account.Name
-		if len(name) > 23 {
-			name = name[:20] + "..."
-		}
-
-		content.WriteString(fmt.Sprintf("%-25s %d\n", name, accountStats.NoteCount))
-	}
-
-	content.WriteString(fmt.Sprintf("\nTotal: %d accounts", len(topAccounts)))
-
-	return content.String()
-}
 
 func (m *Model) renderLogsContent(maxHeight int) string {
 	if len(m.logs) == 0 {
@@ -789,8 +742,8 @@ func (m *Model) adjustTableSizes() {
 
 	// Determine layout and set appropriate sizes
 	if availableWidth < 120 || availableHeight < 30 {
-		// Vertical layout for small screens
-		panelHeight := (availableHeight - 8) / 4
+		// Vertical layout for small screens - 3 panels (API, DataStore, Deployment, Logs)
+		panelHeight := (availableHeight - 6) / 3
 		panelWidth := availableWidth - 4
 
 		apiTableWidth = panelWidth - 4
@@ -798,14 +751,14 @@ func (m *Model) adjustTableSizes() {
 		dataStoreTableWidth = panelWidth - 4
 		dataStoreTableHeight = panelHeight - 6
 	} else {
-		// Grid layout for large screens
+		// Grid layout for large screens - top row has API & DataStore, middle has Deployment, bottom has Logs
 		panelWidth := (availableWidth - 6) / 2
-		topPanelHeight := (availableHeight - 12) * 2 / 3
+		topPanelHeight := (availableHeight - 16) / 3
 
 		apiTableWidth = panelWidth - 4
-		apiTableHeight = topPanelHeight/2 - 6
+		apiTableHeight = topPanelHeight - 6
 		dataStoreTableWidth = panelWidth - 4
-		dataStoreTableHeight = topPanelHeight/2 - 6
+		dataStoreTableHeight = topPanelHeight - 6
 	}
 
 	// Ensure minimum sizes
