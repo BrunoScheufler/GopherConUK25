@@ -36,6 +36,10 @@ type Model struct {
 	deploymentProgress   progress.Model
 	logs                 []string
 	
+	// Table column definitions for dynamic resizing
+	apiColumns           []table.Column
+	dataStoreColumns     []table.Column
+	
 	// Help component
 	help                 help.Model
 	
@@ -208,6 +212,8 @@ func NewBubbleTeaModel(appConfig *AppConfig, options CLIOptions) *Model {
 		help:               helpModel,
 		theme:              theme,
 		logs:               []string{},
+		apiColumns:         apiColumns,
+		dataStoreColumns:   dataStoreColumns,
 	}
 }
 
@@ -228,6 +234,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		
+		// Recalculate panel dimensions based on new size
+		m.adjustTableSizes()
+		
 		return m, nil
 		
 	case tea.KeyMsg:
@@ -770,4 +780,141 @@ func (m *Model) renderLogsContent(maxHeight int) string {
 	}
 	
 	return strings.Join(styledLogs, "\n")
+}
+
+// adjustTableSizes recalculates table dimensions based on current screen size
+func (m *Model) adjustTableSizes() {
+	if m.width == 0 || m.height == 0 {
+		return
+	}
+	
+	// Calculate available space
+	helpHeight := 3
+	availableHeight := m.height - helpHeight - 2
+	availableWidth := m.width - 4
+	
+	var apiTableWidth, apiTableHeight, dataStoreTableWidth, dataStoreTableHeight int
+	
+	// Determine layout and set appropriate sizes
+	if availableWidth < 120 || availableHeight < 30 {
+		// Vertical layout for small screens
+		panelHeight := (availableHeight - 8) / 4
+		panelWidth := availableWidth - 4
+		
+		apiTableWidth = panelWidth - 4
+		apiTableHeight = panelHeight - 6
+		dataStoreTableWidth = panelWidth - 4
+		dataStoreTableHeight = panelHeight - 6
+	} else {
+		// Grid layout for large screens
+		panelWidth := (availableWidth - 6) / 2
+		topPanelHeight := (availableHeight - 12) * 2 / 3
+		
+		apiTableWidth = panelWidth - 4
+		apiTableHeight = topPanelHeight/2 - 6
+		dataStoreTableWidth = panelWidth - 4
+		dataStoreTableHeight = topPanelHeight/2 - 6
+	}
+	
+	// Ensure minimum sizes
+	if apiTableWidth < 30 {
+		apiTableWidth = 30
+	}
+	if apiTableHeight < 3 {
+		apiTableHeight = 3
+	}
+	if dataStoreTableWidth < 30 {
+		dataStoreTableWidth = 30
+	}
+	if dataStoreTableHeight < 3 {
+		dataStoreTableHeight = 3
+	}
+	
+	// Adjust column widths based on available width
+	m.adjustColumnWidths(apiTableWidth, dataStoreTableWidth)
+	
+	// Recreate tables with new dimensions and current data
+	m.recreateTablesWithNewSize(apiTableWidth, apiTableHeight, dataStoreTableWidth, dataStoreTableHeight)
+}
+
+// adjustColumnWidths adjusts table column widths based on available space
+func (m *Model) adjustColumnWidths(apiWidth, dataStoreWidth int) {
+	// Calculate column widths for API table
+	apiColumns := []table.Column{
+		{Title: "Method", Width: min(8, apiWidth/6)},
+		{Title: "Route", Width: min(20, apiWidth/3)},
+		{Title: "Status", Width: min(6, apiWidth/10)},
+		{Title: "Total", Width: min(8, apiWidth/8)},
+		{Title: "RPM", Width: min(6, apiWidth/10)},
+		{Title: "P95ms", Width: min(8, apiWidth/8)},
+	}
+	
+	// Calculate column widths for data store table  
+	dataStoreColumns := []table.Column{
+		{Title: "Store", Width: min(15, dataStoreWidth/4)},
+		{Title: "Operation", Width: min(12, dataStoreWidth/5)},
+		{Title: "Status", Width: min(6, dataStoreWidth/10)},
+		{Title: "Total", Width: min(8, dataStoreWidth/8)},
+		{Title: "RPM", Width: min(6, dataStoreWidth/10)},
+		{Title: "P95ms", Width: min(8, dataStoreWidth/8)},
+	}
+	
+	// Update the table columns by recreating with new column definitions
+	// We'll store these for use in recreateTablesWithNewSize
+	m.apiColumns = apiColumns
+	m.dataStoreColumns = dataStoreColumns
+}
+
+// recreateTablesWithNewSize recreates tables with new dimensions
+func (m *Model) recreateTablesWithNewSize(apiWidth, apiHeight, dataStoreWidth, dataStoreHeight int) {
+	// Create styles
+	apiTableStyles := table.DefaultStyles()
+	apiTableStyles.Header = apiTableStyles.Header.
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(m.theme.Border).
+		BorderBottom(true).
+		Bold(false).
+		Foreground(m.theme.Highlight)
+	apiTableStyles.Selected = apiTableStyles.Selected.
+		Foreground(m.theme.Primary).
+		Background(m.theme.Accent).
+		Bold(false)
+	
+	dataStoreTableStyles := table.DefaultStyles()
+	dataStoreTableStyles.Header = dataStoreTableStyles.Header.
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(m.theme.Border).
+		BorderBottom(true).
+		Bold(false).
+		Foreground(m.theme.Highlight)
+	dataStoreTableStyles.Selected = dataStoreTableStyles.Selected.
+		Foreground(m.theme.Primary).
+		Background(m.theme.Accent).
+		Bold(false)
+	
+	// Recreate API table
+	m.apiTable = table.New(
+		table.WithColumns(m.apiColumns),
+		table.WithRows(m.apiTable.Rows()),
+		table.WithWidth(apiWidth),
+		table.WithHeight(apiHeight),
+		table.WithStyles(apiTableStyles),
+	)
+	
+	// Recreate data store table
+	m.dataStoreTable = table.New(
+		table.WithColumns(m.dataStoreColumns),
+		table.WithRows(m.dataStoreTable.Rows()),
+		table.WithWidth(dataStoreWidth),
+		table.WithHeight(dataStoreHeight),
+		table.WithStyles(dataStoreTableStyles),
+	)
+}
+
+// min returns the smaller of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
