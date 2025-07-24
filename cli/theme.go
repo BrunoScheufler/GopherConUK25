@@ -147,15 +147,23 @@ func FormatStatsWithTheme(stats *telemetry.Stats, theme Theme, appConfig *AppCon
 	// Get live counts from stores
 	accountCount, noteCount := getStoreCounts(ctx, appConfig.AccountStore, appConfig.NoteStore)
 
+	// Calculate approximate totals from new stats structure
+	totalRequests := int64(0)
+	totalRPM := int64(0)
+	for _, apiStat := range stats.APIRequests {
+		totalRequests += int64(apiStat.Metrics.TotalCount)
+		totalRPM += int64(apiStat.Metrics.RequestsPerMin)
+	}
+
 	data := StatsData{
 		AccountCount:   accountCount,
 		NoteCount:      noteCount,
-		TotalRequests:  stats.TotalRequests,
-		RequestsPerSec: stats.RequestsPerSec,
-		Uptime:         formatDuration(stats.Uptime),
-		GoRoutines:     stats.GoRoutines,
-		MemoryUsage:    stats.MemoryUsage,
-		LastUpdated:    stats.LastUpdated.Format("15:04:05"),
+		TotalRequests:  totalRequests,
+		RequestsPerSec: totalRPM / 60, // Approximate requests per second
+		Uptime:         "N/A",         // Not available in new structure
+		GoRoutines:     0,             // Not available in new structure
+		MemoryUsage:    "N/A",         // Not available in new structure
+		LastUpdated:    "N/A",         // Not available in new structure
 		LabelColor:     labelColor,
 		ValueColor:     valueColor,
 		SecondaryColor: secondaryColor,

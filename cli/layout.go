@@ -232,7 +232,7 @@ func (c *CLIApp) updateStats() {
 			DeploymentController: c.deploymentController,
 			Telemetry:            c.telemetry,
 		}
-		text := FormatStatsWithTheme(stats, theme, appConfig, c.ctx)
+		text := FormatStatsWithTheme(&stats, theme, appConfig, c.ctx)
 		c.statsView.SetText(text)
 	})
 }
@@ -467,21 +467,19 @@ func (c *CLIApp) calculateProxyRequestRate(proxyStats *telemetry.ProxyStats) flo
 		return 0.0
 	}
 
-	totalRequests := proxyStats.NoteListRequests + proxyStats.NoteReadRequests + 
-		proxyStats.NoteCreateRequests + proxyStats.NoteUpdateRequests + proxyStats.NoteDeleteRequests
-	
-	// Simple approximation - in a real system, you'd track this over time
-	return float64(totalRequests) / 60.0 // requests per second estimate
+	// In the new design, each ProxyStats represents one operation type
+	// So we return the requests per minute for this specific operation
+	return float64(proxyStats.Metrics.RequestsPerMin) / 60.0 // requests per second
 }
 
 func (c *CLIApp) formatShardMetrics(theme Theme) string {
-	if c.telemetry == nil || c.telemetry.StatsCollector == nil {
+	if c.telemetry == nil {
 		return "No telemetry available"
 	}
 
 	stats := c.telemetry.GetStatsCollector().Export()
 	dataStoreStats := stats.DataStoreAccess
-	if dataStoreStats == nil {
+	if len(dataStoreStats) == 0 {
 		return "No shard stats available"
 	}
 
@@ -503,20 +501,8 @@ func (c *CLIApp) formatShardMetrics(theme Theme) string {
 
 	// Collect all unique shard IDs
 	shards := make(map[string]struct{})
-	for shardID := range dataStoreStats.NoteListRequests {
-		shards[shardID] = struct{}{}
-	}
-	for shardID := range dataStoreStats.NoteReadRequests {
-		shards[shardID] = struct{}{}
-	}
-	for shardID := range dataStoreStats.NoteCreateRequests {
-		shards[shardID] = struct{}{}
-	}
-	for shardID := range dataStoreStats.NoteUpdateRequests {
-		shards[shardID] = struct{}{}
-	}
-	for shardID := range dataStoreStats.NoteDeleteRequests {
-		shards[shardID] = struct{}{}
+	for _, stat := range dataStoreStats {
+		shards[stat.StoreID] = struct{}{}
 	}
 
 	if len(shards) == 0 {
@@ -527,26 +513,18 @@ func (c *CLIApp) formatShardMetrics(theme Theme) string {
 	for shardID := range shards {
 		result.WriteString(fmt.Sprintf("%s%s[-]\n", headerColor, shardID))
 		
-		// Get total requests
-		totalRequests := int64(0)
-		if stats, exists := dataStoreStats.NoteListRequests[shardID]; exists {
-			totalRequests += stats.TotalRequests
-		}
-		if stats, exists := dataStoreStats.NoteReadRequests[shardID]; exists {
-			totalRequests += stats.TotalRequests
-		}
-		if stats, exists := dataStoreStats.NoteCreateRequests[shardID]; exists {
-			totalRequests += stats.TotalRequests
-		}
-		if stats, exists := dataStoreStats.NoteUpdateRequests[shardID]; exists {
-			totalRequests += stats.TotalRequests
-		}
-		if stats, exists := dataStoreStats.NoteDeleteRequests[shardID]; exists {
-			totalRequests += stats.TotalRequests
+		// Get total requests for this shard across all operations
+		totalRequests := 0
+		totalRPM := 0
+		for _, stat := range dataStoreStats {
+			if stat.StoreID == shardID {
+				totalRequests += stat.Metrics.TotalCount
+				totalRPM += stat.Metrics.RequestsPerMin
+			}
 		}
 
-		// Calculate rate (simple approximation)
-		requestRate := float64(totalRequests) / 60.0
+		// Calculate rate
+		requestRate := float64(totalRPM) / 60.0
 
 		result.WriteString(fmt.Sprintf("%sTotal: %s%d[-]\n", labelColor, valueColor, totalRequests))
 		result.WriteString(fmt.Sprintf("%sRate: %s%.1f/sec[-]\n\n", labelColor, valueColor, requestRate))

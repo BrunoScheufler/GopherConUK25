@@ -63,3 +63,8 @@ Metrics around the number of accounts or notes, or load generator-specific data 
 - Add an `Export()` method on the `inMemoryStatsCollector` that returns `Stats`.
 - Add an `Import(stats)` method on the `inMemoryStatsCollector` that allows to merge incoming stats with the existing ones. Incoming metrics must be ignored by `Tick`, as the requests per minute are already accounted for in the source creating the stats.
   - The deployment controller ./proxy/deployment_controller.go should periodically export metrics from its proxy processes using the JSON RPC export method, then import those metrics locally. This way, we should have the full picture of data store access within the proxy instances.
+
+### Use new metrics
+
+- Adjust the REST API with a new middleware to track request metrics
+- Update the CLI to display the new stats

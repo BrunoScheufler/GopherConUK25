@@ -85,7 +85,7 @@ func (p *ProxyClient) makeJSONRPCRequest(ctx context.Context, method string, par
 }
 
 // ListNotes implements NoteStore interface
-func (p *ProxyClient) ListNotes(ctx context.Context, accountID uuid.UUID) ([]store.Note, error) {
+func (p *ProxyClient) ListNotes(ctx context.Context, accountID uuid.UUID) (notes []store.Note, err error) {
 	if p.statsCollector != nil {
 		start := time.Now()
 		defer func() {
@@ -102,16 +102,16 @@ func (p *ProxyClient) ListNotes(ctx context.Context, accountID uuid.UUID) ([]sto
 		return nil, err
 	}
 
-	var notes []store.Note
-	if err := json.Unmarshal(result, &notes); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal notes: %w", err)
+	if err = json.Unmarshal(result, &notes); err != nil {
+		err = fmt.Errorf("failed to unmarshal notes: %w", err)
+		return nil, err
 	}
 
 	return notes, nil
 }
 
 // GetNote implements NoteStore interface
-func (p *ProxyClient) GetNote(ctx context.Context, accountID, noteID uuid.UUID) (*store.Note, error) {
+func (p *ProxyClient) GetNote(ctx context.Context, accountID, noteID uuid.UUID) (note *store.Note, err error) {
 	if p.statsCollector != nil {
 		start := time.Now()
 		defer func() {
@@ -129,16 +129,16 @@ func (p *ProxyClient) GetNote(ctx context.Context, accountID, noteID uuid.UUID) 
 		return nil, err
 	}
 
-	var note *store.Note
-	if err := json.Unmarshal(result, &note); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal note: %w", err)
+	if err = json.Unmarshal(result, &note); err != nil {
+		err = fmt.Errorf("failed to unmarshal note: %w", err)
+		return nil, err
 	}
 
 	return note, nil
 }
 
 // CreateNote implements NoteStore interface
-func (p *ProxyClient) CreateNote(ctx context.Context, accountID uuid.UUID, note store.Note) error {
+func (p *ProxyClient) CreateNote(ctx context.Context, accountID uuid.UUID, note store.Note) (err error) {
 	if p.statsCollector != nil {
 		start := time.Now()
 		defer func() {
@@ -151,12 +151,12 @@ func (p *ProxyClient) CreateNote(ctx context.Context, accountID uuid.UUID, note 
 		"note":      note,
 	}
 
-	_, err := p.makeJSONRPCRequest(ctx, "CreateNote", params)
+	_, err = p.makeJSONRPCRequest(ctx, "CreateNote", params)
 	return err
 }
 
 // UpdateNote implements NoteStore interface
-func (p *ProxyClient) UpdateNote(ctx context.Context, accountID uuid.UUID, note store.Note) error {
+func (p *ProxyClient) UpdateNote(ctx context.Context, accountID uuid.UUID, note store.Note) (err error) {
 	if p.statsCollector != nil {
 		start := time.Now()
 		defer func() {
@@ -169,12 +169,12 @@ func (p *ProxyClient) UpdateNote(ctx context.Context, accountID uuid.UUID, note 
 		"note":      note,
 	}
 
-	_, err := p.makeJSONRPCRequest(ctx, "UpdateNote", params)
+	_, err = p.makeJSONRPCRequest(ctx, "UpdateNote", params)
 	return err
 }
 
 // DeleteNote implements NoteStore interface
-func (p *ProxyClient) DeleteNote(ctx context.Context, accountID uuid.UUID, note store.Note) error {
+func (p *ProxyClient) DeleteNote(ctx context.Context, accountID uuid.UUID, note store.Note) (err error) {
 	if p.statsCollector != nil {
 		start := time.Now()
 		defer func() {
@@ -187,7 +187,7 @@ func (p *ProxyClient) DeleteNote(ctx context.Context, accountID uuid.UUID, note 
 		"note":      note,
 	}
 
-	_, err := p.makeJSONRPCRequest(ctx, "DeleteNote", params)
+	_, err = p.makeJSONRPCRequest(ctx, "DeleteNote", params)
 	return err
 }
 
