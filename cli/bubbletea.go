@@ -524,10 +524,7 @@ func (m *Model) updateAPIStats() {
 		BorderBottom(true).
 		Bold(false).
 		Foreground(m.theme.Highlight)
-	styles.Selected = styles.Selected.
-		Foreground(m.theme.Primary).
-		Background(m.theme.Accent).
-		Bold(false)
+	styles.Selected = lipgloss.NewStyle()
 
 	m.apiTable = table.New(
 		table.WithColumns(m.apiTable.Columns()),
@@ -591,10 +588,7 @@ func (m *Model) updateDataStoreStats() {
 		BorderBottom(true).
 		Bold(false).
 		Foreground(m.theme.Highlight)
-	styles.Selected = styles.Selected.
-		Foreground(m.theme.Primary).
-		Background(m.theme.Accent).
-		Bold(false)
+	styles.Selected = lipgloss.NewStyle()
 
 	m.dataStoreTable = table.New(
 		table.WithColumns(m.dataStoreTable.Columns()),
@@ -773,10 +767,7 @@ func (m *Model) createSingleProxyStatsTable(deployment *proxy.DataProxyProcess, 
 		BorderBottom(true).
 		Bold(false).
 		Foreground(m.theme.Highlight)
-	proxyTableStyles.Selected = proxyTableStyles.Selected.
-		Foreground(m.theme.Primary).
-		Background(m.theme.Accent).
-		Bold(false)
+	proxyTableStyles.Selected = lipgloss.NewStyle()
 
 	// Create the table
 	proxyTable := table.New(
@@ -947,10 +938,7 @@ func (m *Model) recreateTablesWithNewSize(apiWidth, apiHeight, dataStoreWidth, d
 		BorderBottom(true).
 		Bold(false).
 		Foreground(m.theme.Highlight)
-	apiTableStyles.Selected = apiTableStyles.Selected.
-		Foreground(m.theme.Primary).
-		Background(m.theme.Accent).
-		Bold(false)
+	apiTableStyles.Selected = lipgloss.NewStyle()
 
 	dataStoreTableStyles := table.DefaultStyles()
 	dataStoreTableStyles.Header = dataStoreTableStyles.Header.
@@ -959,10 +947,7 @@ func (m *Model) recreateTablesWithNewSize(apiWidth, apiHeight, dataStoreWidth, d
 		BorderBottom(true).
 		Bold(false).
 		Foreground(m.theme.Highlight)
-	dataStoreTableStyles.Selected = dataStoreTableStyles.Selected.
-		Foreground(m.theme.Primary).
-		Background(m.theme.Accent).
-		Bold(false)
+	dataStoreTableStyles.Selected = lipgloss.NewStyle()
 
 	// Recreate API table
 	m.apiTable = table.New(
