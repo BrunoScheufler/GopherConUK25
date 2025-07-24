@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -135,6 +136,30 @@ func (rw *responseWriter) WriteHeader(code int) {
 	rw.ResponseWriter.WriteHeader(code)
 }
 
+// normalizeAPIPath converts paths with dynamic values to their patterns
+// e.g. "/accounts/123" -> "/accounts/{id}"
+//      "/accounts/123/notes/456" -> "/accounts/{accountId}/notes/{noteId}"
+func normalizeAPIPath(path string) string {
+	// Compile patterns once and reuse
+	var patterns = []struct {
+		regex       *regexp.Regexp
+		replacement string
+	}{
+		{regexp.MustCompile(`^/accounts/[^/]+/notes/[^/]+$`), "/accounts/{accountId}/notes/{noteId}"},
+		{regexp.MustCompile(`^/accounts/[^/]+/notes$`), "/accounts/{accountId}/notes"},
+		{regexp.MustCompile(`^/accounts/[^/]+$`), "/accounts/{id}"},
+	}
+	
+	for _, pattern := range patterns {
+		if pattern.regex.MatchString(path) {
+			return pattern.replacement
+		}
+	}
+	
+	// Return original path if no pattern matches
+	return path
+}
+
 func (s *Server) LoggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -142,10 +167,10 @@ func (s *Server) LoggingMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(rw, r)
 		duration := time.Since(start)
 		
-		// Track API request metrics with the new interface
+		// Track API request metrics with normalized path patterns
 		if err := s.telemetry.GetStatsCollector().TrackAPIRequest(
 			r.Method,
-			r.URL.Path,
+			normalizeAPIPath(r.URL.Path),
 			duration,
 			rw.status,
 		); err != nil {
