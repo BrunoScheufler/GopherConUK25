@@ -59,9 +59,9 @@ type DataStoreStats struct {
 
 // Stats holds all collected metrics
 type Stats struct {
-	APIRequests     map[string]APIStats       `json:"apiRequests"`
-	ProxyAccess     map[string]ProxyStats     `json:"proxyAccess"`
-	DataStoreAccess map[string]DataStoreStats `json:"dataStoreAccess"`
+	APIRequests     map[string]*APIStats       `json:"apiRequests"`
+	ProxyAccess     map[string]*ProxyStats     `json:"proxyAccess"`
+	DataStoreAccess map[string]*DataStoreStats `json:"dataStoreAccess"`
 }
 
 // inMemoryStatsCollector implements StatsCollector interface
@@ -77,9 +77,9 @@ func NewStatsCollector() StatsCollector {
 	ctx, cancel := context.WithCancel(context.Background())
 	collector := &inMemoryStatsCollector{
 		stats: Stats{
-			APIRequests:     make(map[string]APIStats),
-			ProxyAccess:     make(map[string]ProxyStats),
-			DataStoreAccess: make(map[string]DataStoreStats),
+			APIRequests:     make(map[string]*APIStats),
+			ProxyAccess:     make(map[string]*ProxyStats),
+			DataStoreAccess: make(map[string]*DataStoreStats),
 		},
 		ctx:    ctx,
 		cancel: cancel,
@@ -103,9 +103,8 @@ func (sc *inMemoryStatsCollector) TrackAPIRequest(method string, path string, du
 		existing.Metrics.TotalCount++
 		existing.Metrics.currentCount++
 		existing.Metrics.currentDurations = append(existing.Metrics.currentDurations, durationMs)
-		sc.stats.APIRequests[key] = existing
 	} else {
-		sc.stats.APIRequests[key] = APIStats{
+		sc.stats.APIRequests[key] = &APIStats{
 			Method: method,
 			Route:  path,
 			Status: responseStatusCode,
@@ -130,9 +129,8 @@ func (sc *inMemoryStatsCollector) TrackProxyAccess(operation string, duration ti
 		existing.Metrics.TotalCount++
 		existing.Metrics.currentCount++
 		existing.Metrics.currentDurations = append(existing.Metrics.currentDurations, durationMs)
-		sc.stats.ProxyAccess[key] = existing
 	} else {
-		sc.stats.ProxyAccess[key] = ProxyStats{
+		sc.stats.ProxyAccess[key] = &ProxyStats{
 			ProxyID:   proxyID,
 			Operation: operation,
 			Success:   success,
@@ -157,9 +155,8 @@ func (sc *inMemoryStatsCollector) TrackDataStoreAccess(operation string, duratio
 		existing.Metrics.TotalCount++
 		existing.Metrics.currentCount++
 		existing.Metrics.currentDurations = append(existing.Metrics.currentDurations, durationMs)
-		sc.stats.DataStoreAccess[key] = existing
 	} else {
-		sc.stats.DataStoreAccess[key] = DataStoreStats{
+		sc.stats.DataStoreAccess[key] = &DataStoreStats{
 			StoreID:   storeID,
 			Operation: operation,
 			Success:   success,
@@ -179,9 +176,9 @@ func (sc *inMemoryStatsCollector) Export() Stats {
 	
 	// Copy stats excluding internal fields
 	exported := Stats{
-		APIRequests:     make(map[string]APIStats),
-		ProxyAccess:     make(map[string]ProxyStats),
-		DataStoreAccess: make(map[string]DataStoreStats),
+		APIRequests:     make(map[string]*APIStats),
+		ProxyAccess:     make(map[string]*ProxyStats),
+		DataStoreAccess: make(map[string]*DataStoreStats),
 	}
 	
 	for k, v := range sc.stats.APIRequests {
@@ -192,7 +189,7 @@ func (sc *inMemoryStatsCollector) Export() Stats {
 			DurationP95:    v.Metrics.DurationP95,
 		}
 		
-		exported.APIRequests[k] = APIStats{
+		exported.APIRequests[k] = &APIStats{
 			Method:  v.Method,
 			Route:   v.Route,
 			Status:  v.Status,
@@ -208,7 +205,7 @@ func (sc *inMemoryStatsCollector) Export() Stats {
 			DurationP95:    v.Metrics.DurationP95,
 		}
 		
-		exported.ProxyAccess[k] = ProxyStats{
+		exported.ProxyAccess[k] = &ProxyStats{
 			ProxyID:   v.ProxyID,
 			Operation: v.Operation,
 			Success:   v.Success,
@@ -224,7 +221,7 @@ func (sc *inMemoryStatsCollector) Export() Stats {
 			DurationP95:    v.Metrics.DurationP95,
 		}
 		
-		exported.DataStoreAccess[k] = DataStoreStats{
+		exported.DataStoreAccess[k] = &DataStoreStats{
 			StoreID:   v.StoreID,
 			Operation: v.Operation,
 			Success:   v.Success,
@@ -244,7 +241,6 @@ func (sc *inMemoryStatsCollector) Import(stats Stats) {
 	for key, incoming := range stats.APIRequests {
 		if existing, exists := sc.stats.APIRequests[key]; exists {
 			existing.Metrics.TotalCount += incoming.Metrics.TotalCount
-			sc.stats.APIRequests[key] = existing
 		} else {
 			// Don't include current count/durations as they're from external source
 			incoming.Metrics.currentCount = 0
@@ -257,7 +253,6 @@ func (sc *inMemoryStatsCollector) Import(stats Stats) {
 	for key, incoming := range stats.ProxyAccess {
 		if existing, exists := sc.stats.ProxyAccess[key]; exists {
 			existing.Metrics.TotalCount += incoming.Metrics.TotalCount
-			sc.stats.ProxyAccess[key] = existing
 		} else {
 			incoming.Metrics.currentCount = 0
 			incoming.Metrics.currentDurations = nil
@@ -269,7 +264,6 @@ func (sc *inMemoryStatsCollector) Import(stats Stats) {
 	for key, incoming := range stats.DataStoreAccess {
 		if existing, exists := sc.stats.DataStoreAccess[key]; exists {
 			existing.Metrics.TotalCount += incoming.Metrics.TotalCount
-			sc.stats.DataStoreAccess[key] = existing
 		} else {
 			incoming.Metrics.currentCount = 0
 			incoming.Metrics.currentDurations = nil
@@ -299,30 +293,27 @@ func (sc *inMemoryStatsCollector) calculateMetrics() {
 	defer sc.mutex.Unlock()
 	
 	// Calculate metrics for API requests
-	for key, stats := range sc.stats.APIRequests {
+	for _, stats := range sc.stats.APIRequests {
 		stats.Metrics.RequestsPerMin = calculateRPM(stats.Metrics.currentCount)
 		stats.Metrics.DurationP95 = calculateP95(stats.Metrics.currentDurations)
 		stats.Metrics.currentCount = 0
 		stats.Metrics.currentDurations = nil
-		sc.stats.APIRequests[key] = stats
 	}
 	
 	// Calculate metrics for proxy access
-	for key, stats := range sc.stats.ProxyAccess {
+	for _, stats := range sc.stats.ProxyAccess {
 		stats.Metrics.RequestsPerMin = calculateRPM(stats.Metrics.currentCount)
 		stats.Metrics.DurationP95 = calculateP95(stats.Metrics.currentDurations)
 		stats.Metrics.currentCount = 0
 		stats.Metrics.currentDurations = nil
-		sc.stats.ProxyAccess[key] = stats
 	}
 	
 	// Calculate metrics for data store access
-	for key, stats := range sc.stats.DataStoreAccess {
+	for _, stats := range sc.stats.DataStoreAccess {
 		stats.Metrics.RequestsPerMin = calculateRPM(stats.Metrics.currentCount)
 		stats.Metrics.DurationP95 = calculateP95(stats.Metrics.currentDurations)
 		stats.Metrics.currentCount = 0
 		stats.Metrics.currentDurations = nil
-		sc.stats.DataStoreAccess[key] = stats
 	}
 }
 

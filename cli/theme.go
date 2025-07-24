@@ -140,7 +140,7 @@ func FormatStatsWithTheme(stats *telemetry.Stats, theme Theme, appConfig *AppCon
 		// Sort API stats by total count (descending)
 		type apiStatPair struct {
 			key  string
-			stat telemetry.APIStats
+			stat *telemetry.APIStats
 		}
 		var apiStats []apiStatPair
 		for key, stat := range stats.APIRequests {
@@ -178,7 +178,7 @@ func FormatStatsWithTheme(stats *telemetry.Stats, theme Theme, appConfig *AppCon
 		result.WriteString(fmt.Sprintf("%sNo proxy activity[-]\n\n", labelColor))
 	} else {
 		// Group proxy stats by proxy ID
-		proxyGroups := make(map[int][]telemetry.ProxyStats)
+		proxyGroups := make(map[int][]*telemetry.ProxyStats)
 		for _, stat := range stats.ProxyAccess {
 			proxyGroups[stat.ProxyID] = append(proxyGroups[stat.ProxyID], stat)
 		}
@@ -217,7 +217,7 @@ func FormatStatsWithTheme(stats *telemetry.Stats, theme Theme, appConfig *AppCon
 		result.WriteString(fmt.Sprintf("%sNo data store activity[-]\n", labelColor))
 	} else {
 		// Group data store stats by store ID
-		storeGroups := make(map[string][]telemetry.DataStoreStats)
+		storeGroups := make(map[string][]*telemetry.DataStoreStats)
 		for _, stat := range stats.DataStoreAccess {
 			storeGroups[stat.StoreID] = append(storeGroups[stat.StoreID], stat)
 		}
