@@ -29,6 +29,10 @@ type CLIApp struct {
 
 	ctx    context.Context
 	cancel context.CancelFunc
+	
+	// Screen dimensions for responsive layout
+	currentWidth  int
+	currentHeight int
 }
 
 func NewCLIApp(appConfig *AppConfig, options CLIOptions) *CLIApp {
@@ -100,32 +104,23 @@ func (c *CLIApp) Setup() {
 	})
 	ApplyThemeToTextView(c.logView, theme)
 
-	// Create top row: stats and accounts
-	topRowFlex := tview.NewFlex()
-	topRowFlex.SetDirection(tview.FlexColumn)
-	topRowFlex.AddItem(c.statsView, 0, 1, false)    // 50% of width
-	topRowFlex.AddItem(c.accountsView, 0, 1, false) // 50% of width
-
-	// Create middle row: deployments and shard metrics
-	middleRowFlex := tview.NewFlex()
-	middleRowFlex.SetDirection(tview.FlexColumn)
-	middleRowFlex.AddItem(c.deploymentView, 0, 1, false)   // 50% of width
-	middleRowFlex.AddItem(c.shardMetricsView, 0, 1, false) // 50% of width
-
-	// Create top section: combine top and middle rows
-	topFlex := tview.NewFlex()
-	topFlex.SetDirection(tview.FlexRow)
-	topFlex.AddItem(topRowFlex, 0, 1, false)    // 50% of top section
-	topFlex.AddItem(middleRowFlex, 0, 1, false) // 50% of top section
-
-	// Create main layout with 2:1 ratio (2/3 top, 1/3 bottom)
-	mainFlex := tview.NewFlex()
-	mainFlex.SetDirection(tview.FlexRow)
-	mainFlex.AddItem(topFlex, 0, 2, false)     // 2/3 of screen
-	mainFlex.AddItem(c.logView, 0, 1, false)   // 1/3 of screen
-
+	// Create a responsive layout that adapts to screen size
+	mainFlex := c.createResponsiveLayout()
+	
 	c.app.SetRoot(mainFlex, true)
 	c.app.EnableMouse(true)
+	
+	// Handle screen resize events
+	c.app.SetBeforeDrawFunc(func(screen tcell.Screen) bool {
+		// Check if we need to recreate the layout due to screen size change
+		width, height := screen.Size()
+		
+		// Store current dimensions for layout decisions
+		c.currentWidth = width
+		c.currentHeight = height
+		
+		return false
+	})
 
 	// Set up key bindings
 	c.app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
@@ -188,6 +183,110 @@ func (c *CLIApp) Start() error {
 func (c *CLIApp) Stop() {
 	c.cancel()
 	c.app.Stop()
+}
+
+// createResponsiveLayout creates a layout that adapts to screen size
+func (c *CLIApp) createResponsiveLayout() *tview.Flex {
+	// Try to get initial screen dimensions
+	// If not available, default to large layout
+	if c.currentWidth == 0 || c.currentHeight == 0 {
+		// Assume large screen initially
+		return c.createLargeLayout()
+	}
+	
+	return c.getOptimalLayout(c.currentWidth, c.currentHeight)
+}
+
+// getOptimalLayout determines the best layout based on screen dimensions
+func (c *CLIApp) getOptimalLayout(width, height int) *tview.Flex {
+	// Define minimum widths for comfortable viewing
+	minPaneWidth := 40
+	minPaneHeight := 10
+	
+	// Determine layout based on screen size
+	if width < minPaneWidth*2 || height < minPaneHeight*3 {
+		// Very small screen - stack everything vertically
+		return c.createVerticalLayout()
+	} else if width < minPaneWidth*4 {
+		// Medium screen - 2x2 grid with logs at bottom
+		return c.createMediumLayout()
+	} else {
+		// Large screen - original 2x2 grid for top views
+		return c.createLargeLayout()
+	}
+}
+
+// createVerticalLayout stacks all views vertically for very small screens
+func (c *CLIApp) createVerticalLayout() *tview.Flex {
+	mainFlex := tview.NewFlex()
+	mainFlex.SetDirection(tview.FlexRow)
+	
+	// Stack all views vertically with equal height
+	mainFlex.AddItem(c.statsView, 0, 1, false)
+	mainFlex.AddItem(c.accountsView, 0, 1, false)
+	mainFlex.AddItem(c.deploymentView, 0, 1, false)
+	mainFlex.AddItem(c.shardMetricsView, 0, 1, false)
+	mainFlex.AddItem(c.logView, 0, 1, false)
+	
+	return mainFlex
+}
+
+// createMediumLayout creates a 2-column layout for medium screens
+func (c *CLIApp) createMediumLayout() *tview.Flex {
+	// Create column 1: stats and deployments
+	col1 := tview.NewFlex()
+	col1.SetDirection(tview.FlexRow)
+	col1.AddItem(c.statsView, 0, 1, false)
+	col1.AddItem(c.deploymentView, 0, 1, false)
+	
+	// Create column 2: accounts and shard metrics
+	col2 := tview.NewFlex()
+	col2.SetDirection(tview.FlexRow)
+	col2.AddItem(c.accountsView, 0, 1, false)
+	col2.AddItem(c.shardMetricsView, 0, 1, false)
+	
+	// Combine columns
+	topFlex := tview.NewFlex()
+	topFlex.SetDirection(tview.FlexColumn)
+	topFlex.AddItem(col1, 0, 1, false)
+	topFlex.AddItem(col2, 0, 1, false)
+	
+	// Main layout with logs at bottom
+	mainFlex := tview.NewFlex()
+	mainFlex.SetDirection(tview.FlexRow)
+	mainFlex.AddItem(topFlex, 0, 2, false)   // 2/3 of screen
+	mainFlex.AddItem(c.logView, 0, 1, false) // 1/3 of screen
+	
+	return mainFlex
+}
+
+// createLargeLayout creates the original 2x2 grid layout for large screens
+func (c *CLIApp) createLargeLayout() *tview.Flex {
+	// Create top row: stats and accounts
+	topRowFlex := tview.NewFlex()
+	topRowFlex.SetDirection(tview.FlexColumn)
+	topRowFlex.AddItem(c.statsView, 0, 1, false)    // 50% of width
+	topRowFlex.AddItem(c.accountsView, 0, 1, false) // 50% of width
+
+	// Create middle row: deployments and shard metrics
+	middleRowFlex := tview.NewFlex()
+	middleRowFlex.SetDirection(tview.FlexColumn)
+	middleRowFlex.AddItem(c.deploymentView, 0, 1, false)   // 50% of width
+	middleRowFlex.AddItem(c.shardMetricsView, 0, 1, false) // 50% of width
+
+	// Create top section: combine top and middle rows
+	topFlex := tview.NewFlex()
+	topFlex.SetDirection(tview.FlexRow)
+	topFlex.AddItem(topRowFlex, 0, 1, false)    // 50% of top section
+	topFlex.AddItem(middleRowFlex, 0, 1, false) // 50% of top section
+
+	// Create main layout with 2:1 ratio (2/3 top, 1/3 bottom)
+	mainFlex := tview.NewFlex()
+	mainFlex.SetDirection(tview.FlexRow)
+	mainFlex.AddItem(topFlex, 0, 2, false)     // 2/3 of screen
+	mainFlex.AddItem(c.logView, 0, 1, false)   // 1/3 of screen
+	
+	return mainFlex
 }
 
 
@@ -425,33 +524,244 @@ func (c *CLIApp) formatDeployments(theme Theme) string {
 	
 	result.WriteString("\n")
 
-	// Current deployment
+	// Get deployment info
 	current := c.deploymentController.Current()
-	if current != nil {
-		result.WriteString(fmt.Sprintf("%sCurrent (v%d)[-]\n", headerColor, current.ID))
-		result.WriteString(fmt.Sprintf("%sLaunched: %s%s[-]\n", 
-			labelColor, valueColor, current.LaunchedAt.Format("15:04:05")))
-		
-		// Add proxy stats for current deployment
-		c.formatProxyStatsForVersion(&result, current.ID, stats, labelColor, valueColor, successColor, errorColor)
-	} else {
-		result.WriteString(fmt.Sprintf("%sCurrent: %sNone[-]\n", headerColor, labelColor))
-	}
-
-	// Previous deployment
 	previous := c.deploymentController.Previous()
-	if previous != nil {
-		result.WriteString(fmt.Sprintf("%sPrevious (v%d)[-]\n", headerColor, previous.ID))
-		result.WriteString(fmt.Sprintf("%sLaunched: %s%s[-]\n", 
-			labelColor, valueColor, previous.LaunchedAt.Format("15:04:05")))
-		
-		// Add proxy stats for previous deployment
-		c.formatProxyStatsForVersion(&result, previous.ID, stats, labelColor, valueColor, successColor, errorColor)
+	
+	// Get the deployment view width to determine layout
+	_, _, width, _ := c.deploymentView.GetInnerRect()
+	
+	// Check if we have both deployments and enough width for side-by-side layout
+	// We need at least 100 characters for comfortable side-by-side display
+	if current != nil && previous != nil && width >= 100 {
+		// Side-by-side layout
+		c.formatDeploymentsSideBySide(&result, current, previous, stats, theme, headerColor, labelColor, valueColor, successColor, errorColor)
 	} else {
-		result.WriteString(fmt.Sprintf("%sPrevious: %sNone[-]\n", headerColor, labelColor))
+		// Sequential layout (original behavior)
+		// Current deployment
+		if current != nil {
+			result.WriteString(fmt.Sprintf("%sCurrent (v%d)[-]\n", headerColor, current.ID))
+			result.WriteString(fmt.Sprintf("%sLaunched: %s%s[-]\n", 
+				labelColor, valueColor, current.LaunchedAt.Format("15:04:05")))
+			
+			// Add proxy stats for current deployment
+			c.formatProxyStatsForVersion(&result, current.ID, stats, labelColor, valueColor, successColor, errorColor)
+		} else {
+			result.WriteString(fmt.Sprintf("%sCurrent: %sNone[-]\n", headerColor, labelColor))
+		}
+
+		// Previous deployment
+		if previous != nil {
+			result.WriteString(fmt.Sprintf("%sPrevious (v%d)[-]\n", headerColor, previous.ID))
+			result.WriteString(fmt.Sprintf("%sLaunched: %s%s[-]\n", 
+				labelColor, valueColor, previous.LaunchedAt.Format("15:04:05")))
+			
+			// Add proxy stats for previous deployment
+			c.formatProxyStatsForVersion(&result, previous.ID, stats, labelColor, valueColor, successColor, errorColor)
+		} else {
+			result.WriteString(fmt.Sprintf("%sPrevious: %sNone[-]\n", headerColor, labelColor))
+		}
 	}
 
 	return result.String()
+}
+
+// formatDeploymentsSideBySide formats current and previous deployments side-by-side
+func (c *CLIApp) formatDeploymentsSideBySide(result *strings.Builder, current, previous *proxy.DataProxyProcess, stats telemetry.Stats, theme Theme, headerColor, labelColor, valueColor, successColor, errorColor string) {
+	// Get the deployment view width to calculate column widths dynamically
+	_, _, viewWidth, _ := c.deploymentView.GetInnerRect()
+	
+	// Calculate widths for each column based on available space
+	separator := "  " // Space between columns
+	columnWidth := (viewWidth - len(separator)) / 2
+	if columnWidth < 40 {
+		columnWidth = 40 // Minimum column width
+	}
+	
+	// Headers
+	currentHeader := fmt.Sprintf("%sCurrent (v%d)[-]", headerColor, current.ID)
+	previousHeader := fmt.Sprintf("%sPrevious (v%d)[-]", headerColor, previous.ID)
+	result.WriteString(fmt.Sprintf("%-*s%s%s\n", columnWidth, currentHeader, separator, previousHeader))
+	
+	// Launched times
+	currentLaunched := fmt.Sprintf("%sLaunched: %s%s[-]", labelColor, valueColor, current.LaunchedAt.Format("15:04:05"))
+	previousLaunched := fmt.Sprintf("%sLaunched: %s%s[-]", labelColor, valueColor, previous.LaunchedAt.Format("15:04:05"))
+	result.WriteString(fmt.Sprintf("%-*s%s%s\n", columnWidth, currentLaunched, separator, previousLaunched))
+	
+	// Get proxy stats for both deployments
+	currentStats := c.getProxyStatsLines(current.ID, stats, labelColor, valueColor, successColor, errorColor)
+	previousStats := c.getProxyStatsLines(previous.ID, stats, labelColor, valueColor, successColor, errorColor)
+	
+	// Display stats side-by-side
+	maxLines := len(currentStats)
+	if len(previousStats) > maxLines {
+		maxLines = len(previousStats)
+	}
+	
+	for i := 0; i < maxLines; i++ {
+		currentLine := ""
+		if i < len(currentStats) {
+			currentLine = currentStats[i]
+		}
+		
+		previousLine := ""
+		if i < len(previousStats) {
+			previousLine = previousStats[i]
+		}
+		
+		// Strip color codes to calculate actual width
+		currentLineClean := stripColorCodes(currentLine)
+		
+		// Pad current line to column width
+		padding := columnWidth - len(currentLineClean)
+		if padding < 0 {
+			padding = 0
+		}
+		
+		result.WriteString(currentLine)
+		result.WriteString(strings.Repeat(" ", padding))
+		result.WriteString(separator)
+		result.WriteString(previousLine)
+		result.WriteString("\n")
+	}
+}
+
+// stripColorCodes removes tview color codes from a string for width calculation
+func stripColorCodes(s string) string {
+	result := s
+	for _, colorCode := range []string{"[navy]", "[black]", "[darkgreen]", "[darkred]", "[yellow]", "[white]", "[green]", "[red]", "[grey]", "[darkgray]", "[teal]", "[aqua]", "[cyan]", "[-]"} {
+		result = strings.ReplaceAll(result, colorCode, "")
+	}
+	return result
+}
+
+// getProxyStatsLines returns formatted proxy stats as individual lines
+func (c *CLIApp) getProxyStatsLines(proxyID int, stats telemetry.Stats, labelColor, valueColor, successColor, errorColor string) []string {
+	var lines []string
+	
+	// Find proxy stats for this specific proxy ID
+	var proxyStats []*telemetry.ProxyStats
+	for _, stat := range stats.ProxyAccess {
+		if stat.ProxyID == proxyID {
+			proxyStats = append(proxyStats, stat)
+		}
+	}
+	
+	if len(proxyStats) == 0 {
+		lines = append(lines, fmt.Sprintf("%sProxy Access: No activity[-]", labelColor))
+		return lines
+	}
+	
+	lines = append(lines, fmt.Sprintf("%sProxy Access:[-]", labelColor))
+	
+	// Prepare table data
+	headers := []string{"Operation", "Status", "Total", "RPM", "P95ms"}
+	var rows [][]string
+	
+	for _, stat := range proxyStats {
+		statusColor := successColor
+		statusIcon := "✓"
+		if !stat.Success {
+			statusColor = errorColor
+			statusIcon = "✗"
+		}
+		
+		row := []string{
+			fmt.Sprintf("%s%s[-]", labelColor, stat.Operation),
+			fmt.Sprintf("%s%s[-]", statusColor, statusIcon),
+			fmt.Sprintf("%s%d[-]", valueColor, stat.Metrics.TotalCount),
+			fmt.Sprintf("%s%d[-]", valueColor, stat.Metrics.RequestsPerMin),
+			fmt.Sprintf("%s%d[-]", valueColor, stat.Metrics.DurationP95),
+		}
+		rows = append(rows, row)
+	}
+	
+	// Format the compact table
+	tableLines := c.formatCompactProxyTable(headers, rows, GetTheme(c.options.Theme))
+	lines = append(lines, tableLines...)
+	
+	return lines
+}
+
+// formatCompactProxyTable creates a compact table that returns individual lines
+func (c *CLIApp) formatCompactProxyTable(headers []string, rows [][]string, theme Theme) []string {
+	if len(rows) == 0 {
+		return []string{}
+	}
+
+	var headerColor, borderColor string
+	if theme.Name == "light" {
+		headerColor = "[navy]"
+		borderColor = "[darkgray]"
+	} else {
+		headerColor = "[yellow]"
+		borderColor = "[gray]"
+	}
+
+	// Calculate column widths
+	colWidths := make([]int, len(headers))
+	for i, header := range headers {
+		colWidths[i] = len(header)
+	}
+	
+	for _, row := range rows {
+		for i, cell := range row {
+			if i < len(colWidths) {
+				cleanCell := stripColorCodes(cell)
+				if len(cleanCell) > colWidths[i] {
+					colWidths[i] = len(cleanCell)
+				}
+			}
+		}
+	}
+
+	var lines []string
+	
+	// Header row
+	var headerLine strings.Builder
+	headerLine.WriteString("  ") // Indent
+	headerLine.WriteString(headerColor)
+	for i, header := range headers {
+		if i > 0 {
+			headerLine.WriteString(" │ ")
+		}
+		headerLine.WriteString(fmt.Sprintf("%-*s", colWidths[i], header))
+	}
+	headerLine.WriteString("[-]")
+	lines = append(lines, headerLine.String())
+	
+	// Separator line
+	var sepLine strings.Builder
+	sepLine.WriteString("  ") // Indent
+	sepLine.WriteString(borderColor)
+	for i := range headers {
+		if i > 0 {
+			sepLine.WriteString("─┼─")
+		}
+		sepLine.WriteString(strings.Repeat("─", colWidths[i]))
+	}
+	sepLine.WriteString("[-]")
+	lines = append(lines, sepLine.String())
+	
+	// Data rows
+	for _, row := range rows {
+		var dataLine strings.Builder
+		dataLine.WriteString("  ") // Indent
+		for i, cell := range row {
+			if i > 0 {
+				dataLine.WriteString(" │ ")
+			}
+			cleanCell := stripColorCodes(cell)
+			padding := colWidths[i] - len(cleanCell)
+			dataLine.WriteString(cell)
+			if padding > 0 {
+				dataLine.WriteString(strings.Repeat(" ", padding))
+			}
+		}
+		lines = append(lines, dataLine.String())
+	}
+	
+	return lines
 }
 
 // formatProxyTable creates a formatted table for proxy statistics
