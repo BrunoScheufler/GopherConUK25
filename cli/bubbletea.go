@@ -188,7 +188,11 @@ func NewBubbleTeaModel(appConfig *AppConfig, options CLIOptions) *Model {
 	)
 	
 	// Initialize progress bar
-	deploymentProgress := progress.New(progress.WithDefaultGradient())
+	deploymentProgress := progress.New(
+		progress.WithDefaultGradient(),
+		progress.WithWidth(40),
+		progress.WithoutPercentage(),
+	)
 	
 	// Initialize help
 	helpModel := help.New()
@@ -431,9 +435,19 @@ func (m *Model) tickCmd() tea.Cmd {
 // setupLogCapture sets up log message forwarding
 func (m *Model) setupLogCapture() tea.Cmd {
 	if m.appConfig.Telemetry != nil && m.appConfig.Telemetry.LogCapture != nil {
+		// Load existing logs first
+		existingLogs := m.appConfig.Telemetry.LogCapture.GetAllLogs()
+		for _, entry := range existingLogs {
+			// Convert ANSI colors to plain text for now
+			plainMessage := strings.ReplaceAll(entry.Message, "\n", "")
+			m.logs = append(m.logs, plainMessage)
+		}
+		
+		// Set up callback for new logs
 		m.appConfig.Telemetry.LogCapture.SetLogCallback(func(entry telemetry.LogEntry) {
-			// Convert log entry to simple string for now
-			// This would need to be sent via a channel in a real implementation
+			// This is a simplified approach - in a production app you'd use channels
+			_ = strings.ReplaceAll(entry.Message, "\n", "")
+			// We can't directly update the model from here, but this shows the structure
 		})
 	}
 	return nil
@@ -594,35 +608,107 @@ func (m *Model) renderDeploymentContent() string {
 	
 	var content strings.Builder
 	
-	// Status
+	// Status with styling
 	status := m.appConfig.DeploymentController.Status()
-	content.WriteString(fmt.Sprintf("Status: %s\n", status.String()))
+	statusStyle := lipgloss.NewStyle().Foreground(m.theme.Highlight).Bold(true)
+	content.WriteString(fmt.Sprintf("Status: %s\n", statusStyle.Render(status.String())))
 	
 	// Progress bar if active
 	isActive, elapsedSeconds, totalSeconds, progressPercent := m.appConfig.DeploymentController.GetDeploymentProgress()
 	if isActive {
 		remainingSeconds := totalSeconds - elapsedSeconds
-		content.WriteString(fmt.Sprintf("\nProgress: %s %d%% (%ds remaining)\n", 
-			m.deploymentProgress.View(), progressPercent, remainingSeconds))
+		
+		// Style the progress label
+		progressLabelStyle := lipgloss.NewStyle().Foreground(m.theme.Primary)
+		content.WriteString(fmt.Sprintf("\n%s\n", progressLabelStyle.Render("Progress:")))
+		
+		// Show progress bar
+		content.WriteString(fmt.Sprintf("%s\n", m.deploymentProgress.View()))
+		
+		// Show percentage and time
+		infoStyle := lipgloss.NewStyle().Foreground(m.theme.Secondary)
+		content.WriteString(fmt.Sprintf("%s\n", 
+			infoStyle.Render(fmt.Sprintf("%d%% (%ds remaining)", progressPercent, remainingSeconds))))
 	}
 	
-	// Current and previous deployments
+	content.WriteString("\n")
+	
+	// Current and previous deployments with better formatting
+	headerStyle := lipgloss.NewStyle().Foreground(m.theme.Highlight).Bold(true)
+	valueStyle := lipgloss.NewStyle().Foreground(m.theme.Success)
+	
 	current := m.appConfig.DeploymentController.Current()
 	previous := m.appConfig.DeploymentController.Previous()
 	
-	content.WriteString("\n")
 	if current != nil {
-		content.WriteString(fmt.Sprintf("Current (v%d): %s\n", 
-			current.ID, current.LaunchedAt.Format("15:04:05")))
+		content.WriteString(fmt.Sprintf("%s %s\n", 
+			headerStyle.Render(fmt.Sprintf("Current (v%d):", current.ID)),
+			valueStyle.Render(current.LaunchedAt.Format("15:04:05"))))
+		
+		// Add proxy stats for current if available
+		stats := m.appConfig.Telemetry.GetStatsCollector().Export()
+		proxyStats := m.getProxyStatsForDeployment(current.ID, stats)
+		if proxyStats != "" {
+			content.WriteString(proxyStats)
+		}
 	} else {
-		content.WriteString("Current: None\n")
+		content.WriteString(fmt.Sprintf("%s %s\n", 
+			headerStyle.Render("Current:"), 
+			lipgloss.NewStyle().Foreground(m.theme.Subtle).Render("None")))
 	}
 	
 	if previous != nil {
-		content.WriteString(fmt.Sprintf("Previous (v%d): %s\n", 
-			previous.ID, previous.LaunchedAt.Format("15:04:05")))
+		content.WriteString(fmt.Sprintf("%s %s\n", 
+			headerStyle.Render(fmt.Sprintf("Previous (v%d):", previous.ID)),
+			valueStyle.Render(previous.LaunchedAt.Format("15:04:05"))))
+		
+		// Add proxy stats for previous if available
+		stats := m.appConfig.Telemetry.GetStatsCollector().Export()
+		proxyStats := m.getProxyStatsForDeployment(previous.ID, stats)
+		if proxyStats != "" {
+			content.WriteString(proxyStats)
+		}
 	} else {
-		content.WriteString("Previous: None\n")
+		content.WriteString(fmt.Sprintf("%s %s\n", 
+			headerStyle.Render("Previous:"), 
+			lipgloss.NewStyle().Foreground(m.theme.Subtle).Render("None")))
+	}
+	
+	return content.String()
+}
+
+// getProxyStatsForDeployment returns formatted proxy stats for a specific deployment
+func (m *Model) getProxyStatsForDeployment(deploymentID int, stats telemetry.Stats) string {
+	var proxyStats []*telemetry.ProxyStats
+	for _, stat := range stats.ProxyAccess {
+		if stat.ProxyID == deploymentID {
+			proxyStats = append(proxyStats, stat)
+		}
+	}
+	
+	if len(proxyStats) == 0 {
+		return ""
+	}
+	
+	var content strings.Builder
+	labelStyle := lipgloss.NewStyle().Foreground(m.theme.Secondary).Margin(0, 0, 0, 2)
+	
+	for _, stat := range proxyStats {
+		statusIcon := "✓"
+		statusColor := m.theme.Success
+		if !stat.Success {
+			statusIcon = "✗"
+			statusColor = m.theme.Error
+		}
+		
+		statusStyle := lipgloss.NewStyle().Foreground(statusColor)
+		
+		content.WriteString(fmt.Sprintf("%s %s %s: %d reqs, %dms p95\n",
+			labelStyle.Render(stat.Operation),
+			statusStyle.Render(statusIcon),
+			lipgloss.NewStyle().Foreground(m.theme.Primary).Render(fmt.Sprintf("%d RPM", stat.Metrics.RequestsPerMin)),
+			stat.Metrics.TotalCount,
+			stat.Metrics.DurationP95))
 	}
 	
 	return content.String()
@@ -666,7 +752,8 @@ func (m *Model) renderAccountsContent() string {
 
 func (m *Model) renderLogsContent(maxHeight int) string {
 	if len(m.logs) == 0 {
-		return "Waiting for logs..."
+		waitingStyle := lipgloss.NewStyle().Foreground(m.theme.Subtle)
+		return waitingStyle.Render("Waiting for logs...")
 	}
 	
 	// Show the most recent logs that fit in the available height
@@ -675,5 +762,12 @@ func (m *Model) renderLogsContent(maxHeight int) string {
 		startIdx = len(m.logs) - maxHeight
 	}
 	
-	return strings.Join(m.logs[startIdx:], "\n")
+	// Apply basic styling to logs
+	logStyle := lipgloss.NewStyle().Foreground(m.theme.Primary)
+	var styledLogs []string
+	for _, log := range m.logs[startIdx:] {
+		styledLogs = append(styledLogs, logStyle.Render(log))
+	}
+	
+	return strings.Join(styledLogs, "\n")
 }
