@@ -12,7 +12,7 @@ import (
 // Telemetry provides centralized logging and stats collection
 type Telemetry struct {
 	LogCapture     *LogCapture
-	StatsCollector *StatsCollector
+	StatsCollector StatsCollector
 	Logger         *slog.Logger
 	logLevel       slog.Level
 }
@@ -78,11 +78,11 @@ func (t *Telemetry) SetupGlobalLogger() {
 
 // Start begins background telemetry collection
 func (t *Telemetry) Start() {
-	t.StatsCollector.StartRequestRateCalculation()
+	// Stats collector now starts its ticker automatically in NewStatsCollector
 }
 
 // GetStatsCollector returns the stats collector instance
-func (t *Telemetry) GetStatsCollector() *StatsCollector {
+func (t *Telemetry) GetStatsCollector() StatsCollector {
 	return t.StatsCollector
 }
 
