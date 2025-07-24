@@ -682,26 +682,33 @@ func (m *Model) renderDeploymentContent() string {
 
 	var content strings.Builder
 
-	// Status with styling
+	// Status with styling and inline progress bar
 	status := m.appConfig.DeploymentController.Status()
 	statusStyle := lipgloss.NewStyle().Foreground(m.theme.Highlight).Bold(true)
-	content.WriteString(fmt.Sprintf("Status: %s\n", statusStyle.Render(status.String())))
-
-	// Show deployment progress with progress bar
+	
+	// Check for active deployment progress
 	isActive, elapsedSeconds, totalSeconds, progressPercent := m.appConfig.DeploymentController.GetDeploymentProgress()
+	
 	if isActive {
 		remainingSeconds := totalSeconds - elapsedSeconds
-
-		// Convert percentage to decimal for progress bar
 		progressDecimal := float64(progressPercent) / 100.0
-
-		// Render progress bar
 		progressBar := m.progressBar.ViewAs(progressDecimal)
-
-		// Style the progress text
 		progressStyle := lipgloss.NewStyle().Foreground(m.theme.Primary)
-		content.WriteString(fmt.Sprintf("\n%s %d%% (%ds remaining)\n%s\n",
-			progressStyle.Render("Progress:"), progressPercent, remainingSeconds, progressBar))
+		
+		// Render status and progress bar side by side
+		statusText := fmt.Sprintf("Status: %s", statusStyle.Render(status.String()))
+		progressText := fmt.Sprintf("%s %d%% (%ds remaining)", 
+			progressStyle.Render("Progress:"), progressPercent, remainingSeconds)
+		
+		headerLine := lipgloss.JoinHorizontal(lipgloss.Top, 
+			statusText, 
+			strings.Repeat(" ", 4), // Spacing
+			progressText)
+		
+		content.WriteString(headerLine + "\n" + progressBar + "\n")
+	} else {
+		// Just show status when no active deployment
+		content.WriteString(fmt.Sprintf("Status: %s\n", statusStyle.Render(status.String())))
 	}
 
 	content.WriteString("\n")
