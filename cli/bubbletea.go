@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/table"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -33,7 +34,7 @@ type Model struct {
 	// Panel components
 	apiTable       table.Model
 	dataStoreTable table.Model
-	logs           []string
+	logsViewport   viewport.Model
 
 	// Table column definitions for dynamic resizing
 	apiColumns       []table.Column
@@ -98,17 +99,22 @@ var (
 
 // Key bindings
 type keyMap struct {
-	Deploy key.Binding
-	Quit   key.Binding
+	Deploy     key.Binding
+	Quit       key.Binding
+	ScrollUp   key.Binding
+	ScrollDown key.Binding
+	PageUp     key.Binding
+	PageDown   key.Binding
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Deploy, k.Quit}
+	return []key.Binding{k.Deploy, k.ScrollUp, k.ScrollDown, k.Quit}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Deploy, k.Quit},
+		{k.Deploy, k.ScrollUp, k.ScrollDown},
+		{k.PageUp, k.PageDown, k.Quit},
 	}
 }
 
@@ -116,6 +122,22 @@ var keys = keyMap{
 	Deploy: key.NewBinding(
 		key.WithKeys("d"),
 		key.WithHelp("d", "deploy"),
+	),
+	ScrollUp: key.NewBinding(
+		key.WithKeys("k", "up"),
+		key.WithHelp("↑/k", "scroll up"),
+	),
+	ScrollDown: key.NewBinding(
+		key.WithKeys("j", "down"),
+		key.WithHelp("↓/j", "scroll down"),
+	),
+	PageUp: key.NewBinding(
+		key.WithKeys("pgup", "b"),
+		key.WithHelp("pgup/b", "page up"),
+	),
+	PageDown: key.NewBinding(
+		key.WithKeys("pgdown", "f"),
+		key.WithHelp("pgdn/f", "page down"),
 	),
 	Quit: key.NewBinding(
 		key.WithKeys("q", "ctrl+c", "esc"),
@@ -208,7 +230,7 @@ func NewBubbleTeaModel(appConfig *AppConfig, options CLIOptions) *Model {
 		help:             helpModel,
 		progressBar:      progressModel,
 		theme:            theme,
-		logs:             []string{},
+		logsViewport:     viewport.New(0, 0), // Will be sized properly later
 		apiColumns:       apiColumns,
 		dataStoreColumns: dataStoreColumns,
 	}
@@ -247,6 +269,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				go m.appConfig.DeploymentController.Deploy()
 			}
 			return m, nil
+		case key.Matches(msg, keys.ScrollUp):
+			m.logsViewport.LineUp(1)
+			return m, nil
+		case key.Matches(msg, keys.ScrollDown):
+			m.logsViewport.LineDown(1)
+			return m, nil
+		case key.Matches(msg, keys.PageUp):
+			m.logsViewport.HalfViewUp()
+			return m, nil
+		case key.Matches(msg, keys.PageDown):
+			m.logsViewport.HalfViewDown()
+			return m, nil
 		}
 
 	case tickMsg:
@@ -271,11 +305,25 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.tickCmd()
 
 	case logMsg:
-		m.logs = append(m.logs, string(msg))
-		// Keep only the last 100 log entries
-		if len(m.logs) > 100 {
-			m.logs = m.logs[len(m.logs)-100:]
+		// Get current viewport content using a more reliable method
+		currentLines := strings.Split(strings.TrimSpace(m.logsViewport.View()), "\n")
+		if len(currentLines) == 1 && currentLines[0] == "" {
+			currentLines = []string{}
 		}
+		
+		// Add new log entry
+		currentLines = append(currentLines, string(msg))
+		
+		// Keep only the most recent 100 lines
+		if len(currentLines) > 100 {
+			currentLines = currentLines[len(currentLines)-100:]
+		}
+		
+		// Update viewport content and scroll to bottom
+		newContent := strings.Join(currentLines, "\n")
+		m.logsViewport.SetContent(newContent)
+		m.logsViewport.GotoBottom()
+		
 		// Continue listening for more logs
 		return m, m.setupLogCapture()
 	}
@@ -448,10 +496,22 @@ func (m *Model) setupLogCapture() tea.Cmd {
 	if m.appConfig.Telemetry != nil && m.appConfig.Telemetry.LogCapture != nil {
 		// Load existing logs first
 		existingLogs := m.appConfig.Telemetry.LogCapture.GetAllLogs()
+		var logLines []string
 		for _, entry := range existingLogs {
 			// Convert ANSI colors to plain text for now
 			plainMessage := strings.ReplaceAll(entry.Message, "\n", "")
-			m.logs = append(m.logs, plainMessage)
+			logLines = append(logLines, plainMessage)
+		}
+		
+		// Keep only the most recent 100 lines
+		if len(logLines) > 100 {
+			logLines = logLines[len(logLines)-100:]
+		}
+		
+		// Set initial viewport content
+		if len(logLines) > 0 {
+			m.logsViewport.SetContent(strings.Join(logLines, "\n"))
+			m.logsViewport.GotoBottom()
 		}
 
 		// Create a channel for log messages
@@ -847,25 +907,21 @@ func (m *Model) getProxyStatsForDeployment(deploymentID int, stats telemetry.Sta
 
 
 func (m *Model) renderLogsContent(maxHeight int) string {
-	if len(m.logs) == 0 {
+	// Update viewport dimensions if changed
+	if m.logsViewport.Height != maxHeight {
+		m.logsViewport.Height = maxHeight
+	}
+
+	// Check if viewport has content
+	content := strings.TrimSpace(m.logsViewport.View())
+	if content == "" {
 		waitingStyle := lipgloss.NewStyle().Foreground(m.theme.Subtle)
 		return waitingStyle.Render("Waiting for logs...")
 	}
 
-	// Show the most recent logs that fit in the available height
-	startIdx := 0
-	if len(m.logs) > maxHeight {
-		startIdx = len(m.logs) - maxHeight
-	}
-
-	// Apply basic styling to logs
+	// Apply basic styling to the viewport content
 	logStyle := lipgloss.NewStyle().Foreground(m.theme.Primary)
-	var styledLogs []string
-	for _, log := range m.logs[startIdx:] {
-		styledLogs = append(styledLogs, logStyle.Render(log))
-	}
-
-	return strings.Join(styledLogs, "\n")
+	return logStyle.Render(m.logsViewport.View())
 }
 
 // adjustTableSizes recalculates table dimensions based on current screen size
@@ -916,8 +972,30 @@ func (m *Model) adjustTableSizes() {
 		dataStoreTableHeight = 3
 	}
 
+	// Calculate viewport dimensions for logs panel
+	var viewportWidth, viewportHeight int
+	if availableWidth < 120 || availableHeight < 30 {
+		// Vertical layout - logs panel gets remaining space
+		minPanelHeight := 12
+		panelHeight := max(minPanelHeight, (availableHeight - 20) / 4)
+		logsPanelHeight := availableHeight - (3 * panelHeight) - 8
+		viewportWidth = availableWidth - 6
+		viewportHeight = max(5, logsPanelHeight - 2) // Account for title and padding
+	} else {
+		// Grid layout - logs panel at bottom with full width
+		topPanelHeight := max(12, (availableHeight - 20) / 4)
+		middlePanelHeight := max(8, (availableHeight - 20) / 6)
+		logsPanelHeight := availableHeight - topPanelHeight - middlePanelHeight - 12
+		viewportWidth = availableWidth - 4
+		viewportHeight = max(5, logsPanelHeight - 2) // Account for title and padding
+	}
+
 	// Adjust column widths based on available width
 	m.adjustColumnWidths(apiTableWidth, dataStoreTableWidth)
+
+	// Update viewport dimensions
+	m.logsViewport.Width = viewportWidth
+	m.logsViewport.Height = viewportHeight
 
 	// Recreate tables with new dimensions and current data
 	m.recreateTablesWithNewSize(apiTableWidth, apiTableHeight, dataStoreTableWidth, dataStoreTableHeight)
