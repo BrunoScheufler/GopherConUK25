@@ -136,10 +136,25 @@ func NewBubbleTeaModel(appConfig *AppConfig, options CLIOptions) *Model {
 		{Title: "RPM", Width: 6},
 		{Title: "P95ms", Width: 8},
 	}
+	
+	// Create table styles for API table
+	apiTableStyles := table.DefaultStyles()
+	apiTableStyles.Header = apiTableStyles.Header.
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(theme.Border).
+		BorderBottom(true).
+		Bold(false).
+		Foreground(theme.Highlight)
+	apiTableStyles.Selected = apiTableStyles.Selected.
+		Foreground(theme.Primary).
+		Background(theme.Accent).
+		Bold(false)
+	
 	apiTable := table.New(
 		table.WithColumns(apiColumns),
 		table.WithFocused(false),
 		table.WithHeight(10),
+		table.WithStyles(apiTableStyles),
 	)
 	
 	// Initialize data store table
@@ -151,10 +166,25 @@ func NewBubbleTeaModel(appConfig *AppConfig, options CLIOptions) *Model {
 		{Title: "RPM", Width: 6},
 		{Title: "P95ms", Width: 8},
 	}
+	
+	// Create table styles for data store table
+	dataStoreTableStyles := table.DefaultStyles()
+	dataStoreTableStyles.Header = dataStoreTableStyles.Header.
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(theme.Border).
+		BorderBottom(true).
+		Bold(false).
+		Foreground(theme.Highlight)
+	dataStoreTableStyles.Selected = dataStoreTableStyles.Selected.
+		Foreground(theme.Primary).
+		Background(theme.Accent).
+		Bold(false)
+	
 	dataStoreTable := table.New(
 		table.WithColumns(dataStoreColumns),
 		table.WithFocused(false),
 		table.WithHeight(8),
+		table.WithStyles(dataStoreTableStyles),
 	)
 	
 	// Initialize progress bar
@@ -417,11 +447,37 @@ func (m *Model) updateAPIStats() {
 	
 	stats := m.appConfig.Telemetry.GetStatsCollector().Export()
 	
+	// Convert map to slice for sorting
+	type apiStatPair struct {
+		key  string
+		stat *telemetry.APIStats
+	}
+	var apiStats []apiStatPair
+	for key, stat := range stats.APIRequests {
+		apiStats = append(apiStats, apiStatPair{key, stat})
+	}
+	
+	// Sort by total count (descending)
+	for i := 0; i < len(apiStats); i++ {
+		for j := i + 1; j < len(apiStats); j++ {
+			if apiStats[i].stat.Metrics.TotalCount < apiStats[j].stat.Metrics.TotalCount {
+				apiStats[i], apiStats[j] = apiStats[j], apiStats[i]
+			}
+		}
+	}
+	
 	var rows []table.Row
-	for _, stat := range stats.APIRequests {
+	for _, pair := range apiStats {
+		stat := pair.stat
+		// Truncate route if too long
+		route := stat.Route
+		if len(route) > 18 {
+			route = route[:15] + "..."
+		}
+		
 		row := table.Row{
 			stat.Method,
-			stat.Route,
+			route,
 			fmt.Sprintf("%d", stat.Status),
 			fmt.Sprintf("%d", stat.Metrics.TotalCount),
 			fmt.Sprintf("%d", stat.Metrics.RequestsPerMin),
@@ -430,11 +486,25 @@ func (m *Model) updateAPIStats() {
 		rows = append(rows, row)
 	}
 	
+	// Recreate table with themed styles
+	styles := table.DefaultStyles()
+	styles.Header = styles.Header.
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(m.theme.Border).
+		BorderBottom(true).
+		Bold(false).
+		Foreground(m.theme.Highlight)
+	styles.Selected = styles.Selected.
+		Foreground(m.theme.Primary).
+		Background(m.theme.Accent).
+		Bold(false)
+	
 	m.apiTable = table.New(
 		table.WithColumns(m.apiTable.Columns()),
 		table.WithRows(rows),
 		table.WithWidth(m.apiTable.Width()),
 		table.WithHeight(m.apiTable.Height()),
+		table.WithStyles(styles),
 	)
 }
 
@@ -445,15 +515,35 @@ func (m *Model) updateDataStoreStats() {
 	
 	stats := m.appConfig.Telemetry.GetStatsCollector().Export()
 	
-	var rows []table.Row
+	// Sort data store stats by total count (descending)
+	var dataStoreStats []*telemetry.DataStoreStats
 	for _, stat := range stats.DataStoreAccess {
+		dataStoreStats = append(dataStoreStats, stat)
+	}
+	
+	for i := 0; i < len(dataStoreStats); i++ {
+		for j := i + 1; j < len(dataStoreStats); j++ {
+			if dataStoreStats[i].Metrics.TotalCount < dataStoreStats[j].Metrics.TotalCount {
+				dataStoreStats[i], dataStoreStats[j] = dataStoreStats[j], dataStoreStats[i]
+			}
+		}
+	}
+	
+	var rows []table.Row
+	for _, stat := range dataStoreStats {
 		statusIcon := "✓"
 		if !stat.Success {
 			statusIcon = "✗"
 		}
 		
+		// Truncate store ID if too long
+		storeID := stat.StoreID
+		if len(storeID) > 13 {
+			storeID = storeID[:10] + "..."
+		}
+		
 		row := table.Row{
-			stat.StoreID,
+			storeID,
 			stat.Operation,
 			statusIcon,
 			fmt.Sprintf("%d", stat.Metrics.TotalCount),
@@ -463,11 +553,25 @@ func (m *Model) updateDataStoreStats() {
 		rows = append(rows, row)
 	}
 	
+	// Recreate table with themed styles
+	styles := table.DefaultStyles()
+	styles.Header = styles.Header.
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(m.theme.Border).
+		BorderBottom(true).
+		Bold(false).
+		Foreground(m.theme.Highlight)
+	styles.Selected = styles.Selected.
+		Foreground(m.theme.Primary).
+		Background(m.theme.Accent).
+		Bold(false)
+	
 	m.dataStoreTable = table.New(
 		table.WithColumns(m.dataStoreTable.Columns()),
 		table.WithRows(rows),
 		table.WithWidth(m.dataStoreTable.Width()),
 		table.WithHeight(m.dataStoreTable.Height()),
+		table.WithStyles(styles),
 	)
 }
 
