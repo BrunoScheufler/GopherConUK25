@@ -126,10 +126,7 @@ var keys = keyMap{
 func NewBubbleTeaModel(appConfig *AppConfig, options CLIOptions) *Model {
 	ctx, cancel := context.WithCancel(context.Background())
 	
-	theme := darkTheme
-	if options.Theme == "light" {
-		theme = lightTheme
-	}
+	theme := GetBubbleTeaTheme(options.Theme)
 	
 	// Initialize API requests table
 	apiColumns := []table.Column{
