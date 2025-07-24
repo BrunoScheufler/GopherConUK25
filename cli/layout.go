@@ -576,6 +576,87 @@ func (c *CLIApp) updateShardMetrics() {
 	})
 }
 
+// formatShardTable creates a formatted table for shard statistics
+func (c *CLIApp) formatShardTable(headers []string, rows [][]string, theme Theme) string {
+	if len(rows) == 0 {
+		return ""
+	}
+
+	var headerColor, borderColor string
+	if theme.Name == "light" {
+		headerColor = "[navy]"
+		borderColor = "[darkgray]"
+	} else {
+		headerColor = "[yellow]"
+		borderColor = "[gray]"
+	}
+
+	// Calculate column widths
+	colWidths := make([]int, len(headers))
+	for i, header := range headers {
+		colWidths[i] = len(header)
+	}
+	
+	for _, row := range rows {
+		for i, cell := range row {
+			if i < len(colWidths) {
+				// Remove color codes for width calculation
+				cleanCell := strings.ReplaceAll(cell, "[-]", "")
+				for _, colorCode := range []string{"[navy]", "[black]", "[darkgreen]", "[darkred]", "[yellow]", "[white]", "[green]", "[red]", "[grey]", "[darkgray]"} {
+					cleanCell = strings.ReplaceAll(cleanCell, colorCode, "")
+				}
+				if len(cleanCell) > colWidths[i] {
+					colWidths[i] = len(cleanCell)
+				}
+			}
+		}
+	}
+
+	var result strings.Builder
+	
+	// Header row
+	result.WriteString(headerColor)
+	for i, header := range headers {
+		if i > 0 {
+			result.WriteString(" │ ")
+		}
+		result.WriteString(fmt.Sprintf("%-*s", colWidths[i], header))
+	}
+	result.WriteString("[-]\n")
+	
+	// Separator line
+	result.WriteString(borderColor)
+	for i := range headers {
+		if i > 0 {
+			result.WriteString("─┼─")
+		}
+		result.WriteString(strings.Repeat("─", colWidths[i]))
+	}
+	result.WriteString("[-]\n")
+	
+	// Data rows
+	for _, row := range rows {
+		for i, cell := range row {
+			if i > 0 {
+				result.WriteString(" │ ")
+			}
+			// For colored cells, we need to pad after removing color codes
+			cleanCell := cell
+			for _, colorCode := range []string{"[navy]", "[black]", "[darkgreen]", "[darkred]", "[yellow]", "[white]", "[green]", "[red]", "[grey]", "[darkgray]", "[-]"} {
+				cleanCell = strings.ReplaceAll(cleanCell, colorCode, "")
+			}
+			padding := colWidths[i] - len(cleanCell)
+			result.WriteString(cell)
+			if padding > 0 {
+				result.WriteString(strings.Repeat(" ", padding))
+			}
+		}
+		result.WriteString("\n")
+	}
+	
+	return result.String()
+}
+
 func (c *CLIApp) formatDataStoreAccessByShard(theme Theme) string {
 	var result strings.Builder
 	
@@ -626,9 +707,17 @@ func (c *CLIApp) formatDataStoreAccessByShard(theme Theme) string {
 		}
 	}
 
-	for _, storeID := range storeIDs {
+	for i, storeID := range storeIDs {
+		if i > 0 {
+			result.WriteString("\n")
+		}
+		
 		storeStats := storeGroups[storeID]
 		result.WriteString(fmt.Sprintf("%s%s:[-]\n", headerColor, storeID))
+		
+		// Prepare table data for this shard
+		headers := []string{"Operation", "Status", "Total", "RPM", "P95ms"}
+		var rows [][]string
 		
 		for _, stat := range storeStats {
 			statusColor := successColor
@@ -638,13 +727,18 @@ func (c *CLIApp) formatDataStoreAccessByShard(theme Theme) string {
 				statusIcon = "✗"
 			}
 			
-			result.WriteString(fmt.Sprintf("  %s%s %s%s[-] %sTotal: %s%d[-] %sRPM: %s%d[-] %sP95: %s%dms[-]\n",
-				labelColor, stat.Operation, statusColor, statusIcon,
-				labelColor, valueColor, stat.Metrics.TotalCount,
-				labelColor, valueColor, stat.Metrics.RequestsPerMin,
-				labelColor, valueColor, stat.Metrics.DurationP95))
+			row := []string{
+				fmt.Sprintf("%s%s[-]", labelColor, stat.Operation),
+				fmt.Sprintf("%s%s[-]", statusColor, statusIcon),
+				fmt.Sprintf("%s%d[-]", valueColor, stat.Metrics.TotalCount),
+				fmt.Sprintf("%s%d[-]", valueColor, stat.Metrics.RequestsPerMin),
+				fmt.Sprintf("%s%d[-]", valueColor, stat.Metrics.DurationP95),
+			}
+			rows = append(rows, row)
 		}
-		result.WriteString("\n")
+		
+		// Format the table for this shard
+		result.WriteString(c.formatShardTable(headers, rows, theme))
 	}
 
 	return result.String()
