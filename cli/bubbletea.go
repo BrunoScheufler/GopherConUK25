@@ -276,7 +276,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(m.logs) > 100 {
 			m.logs = m.logs[len(m.logs)-100:]
 		}
-		return m, nil
+		// Continue listening for more logs
+		return m, m.setupLogCapture()
 	}
 
 	return m, tea.Batch(cmds...)
@@ -442,12 +443,28 @@ func (m *Model) setupLogCapture() tea.Cmd {
 			m.logs = append(m.logs, plainMessage)
 		}
 
+		// Create a channel for log messages
+		logChan := make(chan string, 100)
+
 		// Set up callback for new logs
 		m.appConfig.Telemetry.LogCapture.SetLogCallback(func(entry telemetry.LogEntry) {
-			// This is a simplified approach - in a production app you'd use channels
-			_ = strings.ReplaceAll(entry.Message, "\n", "")
-			// We can't directly update the model from here, but this shows the structure
+			plainMessage := strings.ReplaceAll(entry.Message, "\n", "")
+			select {
+			case logChan <- plainMessage:
+			default:
+				// Channel is full, drop the message
+			}
 		})
+
+		// Return a command that listens for log messages
+		return func() tea.Msg {
+			select {
+			case msg := <-logChan:
+				return logMsg(msg)
+			case <-m.ctx.Done():
+				return nil
+			}
+		}
 	}
 	return nil
 }
