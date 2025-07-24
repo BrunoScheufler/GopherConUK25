@@ -105,6 +105,87 @@ func getStoreCounts(ctx context.Context, accountStore store.AccountStore, noteSt
 	return accountCount, noteCount
 }
 
+// formatTable creates a formatted table with headers and rows
+func formatTable(headers []string, rows [][]string, theme Theme) string {
+	if len(rows) == 0 {
+		return ""
+	}
+
+	var headerColor, borderColor string
+	if theme.Name == "light" {
+		headerColor = "[navy]"
+		borderColor = "[darkgray]"
+	} else {
+		headerColor = "[yellow]"
+		borderColor = "[gray]"
+	}
+
+	// Calculate column widths
+	colWidths := make([]int, len(headers))
+	for i, header := range headers {
+		colWidths[i] = len(header)
+	}
+	
+	for _, row := range rows {
+		for i, cell := range row {
+			if i < len(colWidths) {
+				// Remove color codes for width calculation
+				cleanCell := strings.ReplaceAll(cell, "[-]", "")
+				for _, colorCode := range []string{"[navy]", "[black]", "[darkgreen]", "[darkred]", "[yellow]", "[white]", "[green]", "[red]", "[grey]", "[darkgray]"} {
+					cleanCell = strings.ReplaceAll(cleanCell, colorCode, "")
+				}
+				if len(cleanCell) > colWidths[i] {
+					colWidths[i] = len(cleanCell)
+				}
+			}
+		}
+	}
+
+	var result strings.Builder
+	
+	// Header row
+	result.WriteString(headerColor)
+	for i, header := range headers {
+		if i > 0 {
+			result.WriteString(" │ ")
+		}
+		result.WriteString(fmt.Sprintf("%-*s", colWidths[i], header))
+	}
+	result.WriteString("[-]\n")
+	
+	// Separator line
+	result.WriteString(borderColor)
+	for i := range headers {
+		if i > 0 {
+			result.WriteString("─┼─")
+		}
+		result.WriteString(strings.Repeat("─", colWidths[i]))
+	}
+	result.WriteString("[-]\n")
+	
+	// Data rows
+	for _, row := range rows {
+		for i, cell := range row {
+			if i > 0 {
+				result.WriteString(" │ ")
+			}
+			// For colored cells, we need to pad after removing color codes
+			cleanCell := cell
+			for _, colorCode := range []string{"[navy]", "[black]", "[darkgreen]", "[darkred]", "[yellow]", "[white]", "[green]", "[red]", "[grey]", "[darkgray]", "[-]"} {
+				cleanCell = strings.ReplaceAll(cleanCell, colorCode, "")
+			}
+			padding := colWidths[i] - len(cleanCell)
+			result.WriteString(cell)
+			if padding > 0 {
+				result.WriteString(strings.Repeat(" ", padding))
+			}
+		}
+		result.WriteString("\n")
+	}
+	
+	return result.String()
+}
+
 func FormatStatsWithTheme(stats *telemetry.Stats, theme Theme, appConfig *AppConfig, ctx context.Context) string {
 	var result strings.Builder
 	
@@ -144,6 +225,10 @@ func FormatStatsWithTheme(stats *telemetry.Stats, theme Theme, appConfig *AppCon
 		return apiStats[i].stat.Metrics.TotalCount > apiStats[j].stat.Metrics.TotalCount
 	})
 
+	// Prepare table data
+	headers := []string{"Method", "Route", "Status", "Total", "RPM", "P95ms"}
+	var rows [][]string
+	
 	totalAPIRequests := 0
 	totalAPIRPM := 0
 	for _, pair := range apiStats {
@@ -156,16 +241,23 @@ func FormatStatsWithTheme(stats *telemetry.Stats, theme Theme, appConfig *AppCon
 			statusColor = errorColor
 		}
 		
-		result.WriteString(fmt.Sprintf("%s%s %s %s%d[-] %sTotal: %s%d[-] %sRPM: %s%d[-] %sP95: %s%dms[-]\n",
-			labelColor, stat.Method, stat.Route, statusColor, stat.Status,
-			labelColor, valueColor, stat.Metrics.TotalCount,
-			labelColor, valueColor, stat.Metrics.RequestsPerMin,
-			labelColor, valueColor, stat.Metrics.DurationP95))
+		row := []string{
+			fmt.Sprintf("%s%s[-]", labelColor, stat.Method),
+			fmt.Sprintf("%s%s[-]", labelColor, stat.Route),
+			fmt.Sprintf("%s%d[-]", statusColor, stat.Status),
+			fmt.Sprintf("%s%d[-]", valueColor, stat.Metrics.TotalCount),
+			fmt.Sprintf("%s%d[-]", valueColor, stat.Metrics.RequestsPerMin),
+			fmt.Sprintf("%s%d[-]", valueColor, stat.Metrics.DurationP95),
+		}
+		rows = append(rows, row)
 	}
 	
+	// Format the table
+	result.WriteString(formatTable(headers, rows, theme))
+	
 	// Show totals at the bottom
-	result.WriteString(fmt.Sprintf("\n%sTotal: %s%d[-] %sRPM: %s%d[-]", 
-		headerColor, valueColor, totalAPIRequests, headerColor, valueColor, totalAPIRPM))
+	result.WriteString(fmt.Sprintf("\n%sTotal: %s%d[-] requests, %s%d[-] RPM", 
+		headerColor, valueColor, totalAPIRequests, valueColor, totalAPIRPM))
 
 	return result.String()
 }
