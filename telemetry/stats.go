@@ -18,6 +18,7 @@ type StatsCollector interface {
 	TrackDataStoreAccess(operation string, duration time.Duration, storeID string, success bool)
 	Export() Stats
 	Import(stats Stats)
+	Stop() // Gracefully shut down the stats collector
 }
 
 // RequestMetrics holds metrics for a specific request type
