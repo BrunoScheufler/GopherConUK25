@@ -20,7 +20,7 @@ import (
 type DataProxy struct {
 	port           int
 	noteStore      store.NoteStore
-	statsCollector *telemetry.StatsCollector
+	statsCollector telemetry.StatsCollector
 	shardID        string
 	mu             sync.Mutex
 	server         *http.Server
@@ -44,10 +44,9 @@ func NewDataProxy(port int, dbName string) (*DataProxy, error) {
 	}, nil
 }
 
-// lockWithContentionTracking attempts to acquire the lock, tracking contention
+// lockWithContentionTracking attempts to acquire the lock
 func (p *DataProxy) lockWithContentionTracking() {
 	for !p.mu.TryLock() {
-		p.statsCollector.IncrementProxyContention()
 		time.Sleep(5 * time.Millisecond)
 	}
 }
@@ -57,8 +56,10 @@ func (p *DataProxy) ListNotes(ctx context.Context, accountID uuid.UUID) ([]store
 	p.lockWithContentionTracking()
 	defer p.mu.Unlock()
 	
-	p.statsCollector.IncrementDataStoreNoteList(p.shardID)
-	return p.noteStore.ListNotes(ctx, accountID)
+	start := time.Now()
+	result, err := p.noteStore.ListNotes(ctx, accountID)
+	p.statsCollector.TrackDataStoreAccess("ListNotes", time.Since(start), p.shardID, err == nil)
+	return result, err
 }
 
 // GetNote implements NoteStore interface with locking
@@ -66,8 +67,10 @@ func (p *DataProxy) GetNote(ctx context.Context, accountID, noteID uuid.UUID) (*
 	p.lockWithContentionTracking()
 	defer p.mu.Unlock()
 	
-	p.statsCollector.IncrementDataStoreNoteRead(p.shardID)
-	return p.noteStore.GetNote(ctx, accountID, noteID)
+	start := time.Now()
+	result, err := p.noteStore.GetNote(ctx, accountID, noteID)
+	p.statsCollector.TrackDataStoreAccess("GetNote", time.Since(start), p.shardID, err == nil)
+	return result, err
 }
 
 // CreateNote implements NoteStore interface with locking
@@ -75,8 +78,10 @@ func (p *DataProxy) CreateNote(ctx context.Context, accountID uuid.UUID, note st
 	p.lockWithContentionTracking()
 	defer p.mu.Unlock()
 	
-	p.statsCollector.IncrementDataStoreNoteCreate(p.shardID)
-	return p.noteStore.CreateNote(ctx, accountID, note)
+	start := time.Now()
+	err := p.noteStore.CreateNote(ctx, accountID, note)
+	p.statsCollector.TrackDataStoreAccess("CreateNote", time.Since(start), p.shardID, err == nil)
+	return err
 }
 
 // UpdateNote implements NoteStore interface with locking
@@ -84,8 +89,10 @@ func (p *DataProxy) UpdateNote(ctx context.Context, accountID uuid.UUID, note st
 	p.lockWithContentionTracking()
 	defer p.mu.Unlock()
 	
-	p.statsCollector.IncrementDataStoreNoteUpdate(p.shardID)
-	return p.noteStore.UpdateNote(ctx, accountID, note)
+	start := time.Now()
+	err := p.noteStore.UpdateNote(ctx, accountID, note)
+	p.statsCollector.TrackDataStoreAccess("UpdateNote", time.Since(start), p.shardID, err == nil)
+	return err
 }
 
 // DeleteNote implements NoteStore interface with locking
@@ -93,8 +100,10 @@ func (p *DataProxy) DeleteNote(ctx context.Context, accountID uuid.UUID, note st
 	p.lockWithContentionTracking()
 	defer p.mu.Unlock()
 	
-	p.statsCollector.IncrementDataStoreNoteDelete(p.shardID)
-	return p.noteStore.DeleteNote(ctx, accountID, note)
+	start := time.Now()
+	err := p.noteStore.DeleteNote(ctx, accountID, note)
+	p.statsCollector.TrackDataStoreAccess("DeleteNote", time.Since(start), p.shardID, err == nil)
+	return err
 }
 
 // CountNotes implements NoteStore interface with locking
@@ -285,7 +294,7 @@ func (p *DataProxy) handleMethod(ctx context.Context, method string, params inte
 		return nil, err
 
 	case "ExportShardStats":
-		return p.statsCollector.CollectDataStoreStats(), nil
+		return p.statsCollector.Export(), nil
 
 	default:
 		return nil, fmt.Errorf("unknown method: %s", method)
