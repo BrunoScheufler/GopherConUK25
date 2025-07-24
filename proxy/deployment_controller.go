@@ -41,12 +41,13 @@ func (s DeploymentStatus) String() string {
 
 // DeploymentController manages rolling releases of data proxy processes
 type DeploymentController struct {
-	mu        sync.RWMutex
-	current   *DataProxyProcess
-	previous  *DataProxyProcess
-	status    DeploymentStatus
-	deployMu  sync.Mutex // Separate mutex for deploy operations
-	telemetry *telemetry.Telemetry
+	mu               sync.RWMutex
+	current          *DataProxyProcess
+	previous         *DataProxyProcess
+	status           DeploymentStatus
+	deployStartTime  time.Time // Track when deployment started
+	deployMu         sync.Mutex // Separate mutex for deploy operations
+	telemetry        *telemetry.Telemetry
 }
 
 // NewDeploymentController creates a new deployment controller
@@ -78,11 +79,46 @@ func (dc *DeploymentController) Status() DeploymentStatus {
 	return dc.status
 }
 
-// setStatus updates the deployment status
+// GetDeploymentProgress calculates and returns current deployment progress
+func (dc *DeploymentController) GetDeploymentProgress() (isActive bool, elapsedSeconds int, totalSeconds int, progressPercent int) {
+	dc.mu.RLock()
+	defer dc.mu.RUnlock()
+	
+	// Only show progress during rollout wait phase
+	if dc.status != StatusRolloutWait {
+		return false, 0, 0, 0
+	}
+	
+	totalSeconds = int(constants.DeploymentWaitTime.Seconds())
+	elapsed := time.Since(dc.deployStartTime)
+	elapsedSeconds = int(elapsed.Seconds())
+	
+	// Cap elapsed time at total duration
+	if elapsedSeconds > totalSeconds {
+		elapsedSeconds = totalSeconds
+	}
+	
+	// Calculate percentage
+	if totalSeconds > 0 {
+		progressPercent = (elapsedSeconds * 100) / totalSeconds
+		if progressPercent > 100 {
+			progressPercent = 100
+		}
+	}
+	
+	return true, elapsedSeconds, totalSeconds, progressPercent
+}
+
+// setStatus updates the deployment status and tracks deployment start time
 func (dc *DeploymentController) setStatus(status DeploymentStatus) {
 	dc.mu.Lock()
 	defer dc.mu.Unlock()
 	dc.status = status
+	
+	// Track deployment start time when entering rollout wait phase
+	if status == StatusRolloutWait {
+		dc.deployStartTime = time.Now()
+	}
 }
 
 // Deploy performs a rolling release deployment
@@ -146,9 +182,9 @@ func (dc *DeploymentController) Deploy() error {
 
 	dc.setStatus(StatusRolloutWait)
 
-	// Wait 30 seconds before shutting down previous proxy
+	// Wait before shutting down previous proxy
 	go func() {
-		time.Sleep(30 * time.Second)
+		time.Sleep(constants.DeploymentWaitTime)
 
 		dc.mu.Lock()
 		prevProxy := dc.previous

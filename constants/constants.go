@@ -27,6 +27,7 @@ const (
 	ShardOfflineTimeout = 5 * time.Second
 	RollingReleaseDelay = 5 * time.Second
 	MaxNetworkDelayMs  = 5
+	DeploymentWaitTime = 30 * time.Second
 )
 
 // Shard constants

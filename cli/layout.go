@@ -389,8 +389,41 @@ func (c *CLIApp) formatDeployments(theme Theme) string {
 
 	// Deployment status
 	status := c.deploymentController.Status()
-	result.WriteString(fmt.Sprintf("%sStatus: %s%s[-]\n\n", 
+	result.WriteString(fmt.Sprintf("%sStatus: %s%s[-]\n", 
 		headerColor, statusColor, status.String()))
+	
+	// Add progress bar if deployment is active
+	isActive, elapsedSeconds, totalSeconds, progressPercent := c.deploymentController.GetDeploymentProgress()
+	if isActive {
+		remainingSeconds := totalSeconds - elapsedSeconds
+		result.WriteString(fmt.Sprintf("\n%sProgress: ", labelColor))
+		
+		// Draw progress bar
+		barWidth := 30
+		filledWidth := (progressPercent * barWidth) / 100
+		emptyWidth := barWidth - filledWidth
+		
+		// Choose progress bar colors
+		progressColor := valueColor
+		if theme.Name == "light" {
+			progressColor = "[teal]"
+		} else {
+			progressColor = "[cyan]"
+		}
+		
+		result.WriteString("[")
+		result.WriteString(progressColor)
+		result.WriteString(strings.Repeat("█", filledWidth))
+		result.WriteString("[-]")
+		result.WriteString(strings.Repeat("░", emptyWidth))
+		result.WriteString("] ")
+		
+		// Show percentage and time remaining
+		result.WriteString(fmt.Sprintf("%s%d%% (%ds remaining)[-]\n", 
+			valueColor, progressPercent, remainingSeconds))
+	}
+	
+	result.WriteString("\n")
 
 	// Current deployment
 	current := c.deploymentController.Current()
@@ -404,8 +437,6 @@ func (c *CLIApp) formatDeployments(theme Theme) string {
 	} else {
 		result.WriteString(fmt.Sprintf("%sCurrent: %sNone[-]\n", headerColor, labelColor))
 	}
-
-	result.WriteString("\n")
 
 	// Previous deployment
 	previous := c.deploymentController.Previous()
