@@ -2,341 +2,323 @@ package telemetry
 
 import (
 	"context"
-	"fmt"
-	"runtime"
-	"sync/atomic"
+	"sort"
+	"sync"
 	"time"
 )
 
-type StatsCollector struct {
-	// Request counters
-	totalRequests   int64
-	requestsPerSec  int64
-	lastRequestTime time.Time
+const (
+	TickInterval = 5 * time.Second
+)
 
-	// Load generator stats
-	accountReadRequests  int64
-	accountWriteRequests int64
-	noteReadRequests     int64
-	noteWriteRequests    int64
-	noteShardStats       map[string]*ShardStats
+// StatsCollector defines the interface for collecting metrics
+type StatsCollector interface {
+	TrackAPIRequest(method string, path string, duration time.Duration, responseStatusCode int)
+	TrackProxyAccess(operation string, duration time.Duration, proxyID int, success bool)
+	TrackDataStoreAccess(operation string, duration time.Duration, storeID string, success bool)
+	Export() Stats
+	Import(stats Stats)
+}
 
-	// Per-proxy stats
-	proxyStats map[int]*ProxyStats
+// RequestMetrics holds metrics for a specific request type
+type RequestMetrics struct {
+	TotalCount       int   `json:"totalCount"`       // Total count of requests. Only goes up.
+	RequestsPerMin   int   `json:"requestsPerMin"`   // Recent requests per minute
+	DurationP95      int   `json:"durationP95"`      // Recent p95 duration in milliseconds
+	currentCount     int   // Request count in current time window
+	currentDurations []int // Recent durations in milliseconds
+}
 
-	// Data store stats by shard ID
-	dataStoreNoteListRequests   map[string]*RequestStats
-	dataStoreNoteReadRequests   map[string]*RequestStats
-	dataStoreNoteCreateRequests map[string]*RequestStats
-	dataStoreNoteUpdateRequests map[string]*RequestStats
-	dataStoreNoteDeleteRequests map[string]*RequestStats
+// APIStats holds API request metrics
+type APIStats struct {
+	Method  string         `json:"method"`
+	Route   string         `json:"route"`
+	Status  int            `json:"status"`
+	Metrics RequestMetrics `json:"metrics"`
+}
 
-	// Proxy contention counter
-	proxyContentionCount int64
+// ProxyStats holds proxy access metrics
+type ProxyStats struct {
+	ProxyID   int            `json:"proxyId"`
+	Operation string         `json:"operation"`
+	Success   bool           `json:"success"`
+	Metrics   RequestMetrics `json:"metrics"`
+}
 
-	// System stats
-	startTime time.Time
+// DataStoreStats holds data store access metrics
+type DataStoreStats struct {
+	StoreID   string         `json:"storeId"`
+	Operation string         `json:"operation"`
+	Success   bool           `json:"success"`
+	Metrics   RequestMetrics `json:"metrics"`
+}
 
-	// Context for graceful shutdown
+// Stats holds all collected metrics
+type Stats struct {
+	APIRequests     map[string]APIStats       `json:"apiRequests"`
+	ProxyAccess     map[string]ProxyStats     `json:"proxyAccess"`
+	DataStoreAccess map[string]DataStoreStats `json:"dataStoreAccess"`
+}
+
+// inMemoryStatsCollector implements StatsCollector interface
+type inMemoryStatsCollector struct {
+	stats  Stats
+	mutex  sync.RWMutex
 	ctx    context.Context
 	cancel context.CancelFunc
 }
 
-type ShardStats struct {
-	ReadRequests  int64
-	WriteRequests int64
-}
-
-type ProxyStats struct {
-	NoteListRequests   int64
-	NoteReadRequests   int64
-	NoteCreateRequests int64
-	NoteUpdateRequests int64
-	NoteDeleteRequests int64
-}
-
-type RequestStats struct {
-	TotalRequests int64 `json:"totalRequests"`
-	RequestsPerSec float64 `json:"requestsPerSec"`
-}
-
-type DataStoreStats struct {
-	NoteListRequests   map[string]RequestStats `json:"noteListRequests"`
-	NoteReadRequests   map[string]RequestStats `json:"noteReadRequests"`
-	NoteCreateRequests map[string]RequestStats `json:"noteCreateRequests"`
-	NoteUpdateRequests map[string]RequestStats `json:"noteUpdateRequests"`
-	NoteDeleteRequests map[string]RequestStats `json:"noteDeleteRequests"`
-}
-
-type Stats struct {
-	TotalRequests        int64
-	RequestsPerSec       int64
-	AccountReadPerSec    int64
-	AccountWritePerSec   int64
-	NoteReadPerSec       int64
-	NoteWritePerSec      int64
-	NoteShardStats       map[string]*ShardStats
-	ProxyStats           map[int]*ProxyStats
-	ProxyContentionCount int64
-	Uptime               time.Duration
-	GoRoutines           int
-	MemoryUsage          string
-	LastUpdated          time.Time
-}
-
-func NewStatsCollector() *StatsCollector {
+// NewStatsCollector creates a new in-memory stats collector
+func NewStatsCollector() StatsCollector {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &StatsCollector{
-		noteShardStats: make(map[string]*ShardStats),
-		proxyStats:     make(map[int]*ProxyStats),
-		dataStoreNoteListRequests:   make(map[string]*RequestStats),
-		dataStoreNoteReadRequests:   make(map[string]*RequestStats),
-		dataStoreNoteCreateRequests: make(map[string]*RequestStats),
-		dataStoreNoteUpdateRequests: make(map[string]*RequestStats),
-		dataStoreNoteDeleteRequests: make(map[string]*RequestStats),
-		startTime:      time.Now(),
-		ctx:            ctx,
-		cancel:         cancel,
+	collector := &inMemoryStatsCollector{
+		stats: Stats{
+			APIRequests:     make(map[string]APIStats),
+			ProxyAccess:     make(map[string]ProxyStats),
+			DataStoreAccess: make(map[string]DataStoreStats),
+		},
+		ctx:    ctx,
+		cancel: cancel,
 	}
-}
-
-func (sc *StatsCollector) IncrementRequest() {
-	atomic.AddInt64(&sc.totalRequests, 1)
-	sc.lastRequestTime = time.Now()
-}
-
-func (sc *StatsCollector) IncrementAccountRead() {
-	atomic.AddInt64(&sc.accountReadRequests, 1)
-}
-
-func (sc *StatsCollector) IncrementAccountWrite() {
-	atomic.AddInt64(&sc.accountWriteRequests, 1)
-}
-
-func (sc *StatsCollector) IncrementNoteRead(shard string) {
-	atomic.AddInt64(&sc.noteReadRequests, 1)
-	sc.ensureShard(shard)
-	atomic.AddInt64(&sc.noteShardStats[shard].ReadRequests, 1)
-}
-
-func (sc *StatsCollector) IncrementNoteWrite(shard string) {
-	atomic.AddInt64(&sc.noteWriteRequests, 1)
-	sc.ensureShard(shard)
-	atomic.AddInt64(&sc.noteShardStats[shard].WriteRequests, 1)
-}
-
-func (sc *StatsCollector) ensureShard(shard string) {
-	if _, exists := sc.noteShardStats[shard]; !exists {
-		sc.noteShardStats[shard] = &ShardStats{}
-	}
-}
-
-// Per-proxy stats methods
-
-func (sc *StatsCollector) IncrementProxyNoteList(proxyID int) {
-	sc.ensureProxy(proxyID)
-	atomic.AddInt64(&sc.proxyStats[proxyID].NoteListRequests, 1)
-}
-
-func (sc *StatsCollector) IncrementProxyNoteRead(proxyID int) {
-	sc.ensureProxy(proxyID)
-	atomic.AddInt64(&sc.proxyStats[proxyID].NoteReadRequests, 1)
-}
-
-func (sc *StatsCollector) IncrementProxyNoteCreate(proxyID int) {
-	sc.ensureProxy(proxyID)
-	atomic.AddInt64(&sc.proxyStats[proxyID].NoteCreateRequests, 1)
-}
-
-func (sc *StatsCollector) IncrementProxyNoteUpdate(proxyID int) {
-	sc.ensureProxy(proxyID)
-	atomic.AddInt64(&sc.proxyStats[proxyID].NoteUpdateRequests, 1)
-}
-
-func (sc *StatsCollector) IncrementProxyNoteDelete(proxyID int) {
-	sc.ensureProxy(proxyID)
-	atomic.AddInt64(&sc.proxyStats[proxyID].NoteDeleteRequests, 1)
-}
-
-func (sc *StatsCollector) ensureProxy(proxyID int) {
-	if _, exists := sc.proxyStats[proxyID]; !exists {
-		sc.proxyStats[proxyID] = &ProxyStats{}
-	}
-}
-
-// Data store stats methods by shard ID
-
-func (sc *StatsCollector) IncrementDataStoreNoteList(shardID string) {
-	sc.ensureDataStoreShard(shardID, sc.dataStoreNoteListRequests)
-	atomic.AddInt64(&sc.dataStoreNoteListRequests[shardID].TotalRequests, 1)
-}
-
-func (sc *StatsCollector) IncrementDataStoreNoteRead(shardID string) {
-	sc.ensureDataStoreShard(shardID, sc.dataStoreNoteReadRequests)
-	atomic.AddInt64(&sc.dataStoreNoteReadRequests[shardID].TotalRequests, 1)
-}
-
-func (sc *StatsCollector) IncrementDataStoreNoteCreate(shardID string) {
-	sc.ensureDataStoreShard(shardID, sc.dataStoreNoteCreateRequests)
-	atomic.AddInt64(&sc.dataStoreNoteCreateRequests[shardID].TotalRequests, 1)
-}
-
-func (sc *StatsCollector) IncrementDataStoreNoteUpdate(shardID string) {
-	sc.ensureDataStoreShard(shardID, sc.dataStoreNoteUpdateRequests)
-	atomic.AddInt64(&sc.dataStoreNoteUpdateRequests[shardID].TotalRequests, 1)
-}
-
-func (sc *StatsCollector) IncrementDataStoreNoteDelete(shardID string) {
-	sc.ensureDataStoreShard(shardID, sc.dataStoreNoteDeleteRequests)
-	atomic.AddInt64(&sc.dataStoreNoteDeleteRequests[shardID].TotalRequests, 1)
-}
-
-func (sc *StatsCollector) IncrementProxyContention() {
-	atomic.AddInt64(&sc.proxyContentionCount, 1)
-}
-
-func (sc *StatsCollector) ensureDataStoreShard(shardID string, shardMap map[string]*RequestStats) {
-	if _, exists := shardMap[shardID]; !exists {
-		shardMap[shardID] = &RequestStats{}
-	}
-}
-
-func (sc *StatsCollector) CollectStats(ctx context.Context) (*Stats, error) {
-	stats := &Stats{
-		LastUpdated:    time.Now(),
-		Uptime:         time.Since(sc.startTime),
-		GoRoutines:     runtime.NumGoroutine(),
-		NoteShardStats: make(map[string]*ShardStats),
-		ProxyStats:     make(map[int]*ProxyStats),
-	}
-
-	// Request stats
-	stats.TotalRequests = atomic.LoadInt64(&sc.totalRequests)
-	stats.RequestsPerSec = atomic.LoadInt64(&sc.requestsPerSec)
 	
-	// Load generator stats (per-second rates will be calculated separately)
-	stats.AccountReadPerSec = atomic.LoadInt64(&sc.accountReadRequests)
-	stats.AccountWritePerSec = atomic.LoadInt64(&sc.accountWriteRequests)
-	stats.NoteReadPerSec = atomic.LoadInt64(&sc.noteReadRequests)
-	stats.NoteWritePerSec = atomic.LoadInt64(&sc.noteWriteRequests)
-
-	// Copy shard stats
-	for shard, shardStats := range sc.noteShardStats {
-		stats.NoteShardStats[shard] = &ShardStats{
-			ReadRequests:  atomic.LoadInt64(&shardStats.ReadRequests),
-			WriteRequests: atomic.LoadInt64(&shardStats.WriteRequests),
-		}
-	}
-
-	// Copy proxy stats
-	for proxyID, proxyStats := range sc.proxyStats {
-		stats.ProxyStats[proxyID] = &ProxyStats{
-			NoteListRequests:   atomic.LoadInt64(&proxyStats.NoteListRequests),
-			NoteReadRequests:   atomic.LoadInt64(&proxyStats.NoteReadRequests),
-			NoteCreateRequests: atomic.LoadInt64(&proxyStats.NoteCreateRequests),
-			NoteUpdateRequests: atomic.LoadInt64(&proxyStats.NoteUpdateRequests),
-			NoteDeleteRequests: atomic.LoadInt64(&proxyStats.NoteDeleteRequests),
-		}
-	}
-
-	// Proxy contention stats
-	stats.ProxyContentionCount = atomic.LoadInt64(&sc.proxyContentionCount)
-
-	// Memory stats
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-	stats.MemoryUsage = formatBytes(m.Alloc)
-
-	return stats, nil
+	// Start the ticker goroutine
+	go collector.tick()
+	
+	return collector
 }
 
-// CollectDataStoreStats returns data store statistics
-func (sc *StatsCollector) CollectDataStoreStats() *DataStoreStats {
-	dataStoreStats := &DataStoreStats{
-		NoteListRequests:   make(map[string]RequestStats),
-		NoteReadRequests:   make(map[string]RequestStats),
-		NoteCreateRequests: make(map[string]RequestStats),
-		NoteUpdateRequests: make(map[string]RequestStats),
-		NoteDeleteRequests: make(map[string]RequestStats),
-	}
-
-	// Copy note list requests
-	for shardID, stats := range sc.dataStoreNoteListRequests {
-		dataStoreStats.NoteListRequests[shardID] = RequestStats{
-			TotalRequests:  atomic.LoadInt64(&stats.TotalRequests),
-			RequestsPerSec: stats.RequestsPerSec, // This would be calculated by rate calculation
+// TrackAPIRequest tracks API request metrics
+func (sc *inMemoryStatsCollector) TrackAPIRequest(method string, path string, duration time.Duration, responseStatusCode int) {
+	key := method + "-" + path + "-" + string(rune(responseStatusCode))
+	durationMs := int(duration.Milliseconds())
+	
+	sc.mutex.Lock()
+	defer sc.mutex.Unlock()
+	
+	if existing, exists := sc.stats.APIRequests[key]; exists {
+		existing.Metrics.TotalCount++
+		existing.Metrics.currentCount++
+		existing.Metrics.currentDurations = append(existing.Metrics.currentDurations, durationMs)
+		sc.stats.APIRequests[key] = existing
+	} else {
+		sc.stats.APIRequests[key] = APIStats{
+			Method: method,
+			Route:  path,
+			Status: responseStatusCode,
+			Metrics: RequestMetrics{
+				TotalCount:       1,
+				currentCount:     1,
+				currentDurations: []int{durationMs},
+			},
 		}
 	}
+}
 
-	// Copy note read requests
-	for shardID, stats := range sc.dataStoreNoteReadRequests {
-		dataStoreStats.NoteReadRequests[shardID] = RequestStats{
-			TotalRequests:  atomic.LoadInt64(&stats.TotalRequests),
-			RequestsPerSec: stats.RequestsPerSec,
+// TrackProxyAccess tracks proxy access metrics
+func (sc *inMemoryStatsCollector) TrackProxyAccess(operation string, duration time.Duration, proxyID int, success bool) {
+	key := operation + "-" + boolToString(success) + "-" + string(rune(proxyID))
+	durationMs := int(duration.Milliseconds())
+	
+	sc.mutex.Lock()
+	defer sc.mutex.Unlock()
+	
+	if existing, exists := sc.stats.ProxyAccess[key]; exists {
+		existing.Metrics.TotalCount++
+		existing.Metrics.currentCount++
+		existing.Metrics.currentDurations = append(existing.Metrics.currentDurations, durationMs)
+		sc.stats.ProxyAccess[key] = existing
+	} else {
+		sc.stats.ProxyAccess[key] = ProxyStats{
+			ProxyID:   proxyID,
+			Operation: operation,
+			Success:   success,
+			Metrics: RequestMetrics{
+				TotalCount:       1,
+				currentCount:     1,
+				currentDurations: []int{durationMs},
+			},
 		}
 	}
+}
 
-	// Copy note create requests
-	for shardID, stats := range sc.dataStoreNoteCreateRequests {
-		dataStoreStats.NoteCreateRequests[shardID] = RequestStats{
-			TotalRequests:  atomic.LoadInt64(&stats.TotalRequests),
-			RequestsPerSec: stats.RequestsPerSec,
+// TrackDataStoreAccess tracks data store access metrics
+func (sc *inMemoryStatsCollector) TrackDataStoreAccess(operation string, duration time.Duration, storeID string, success bool) {
+	key := operation + "-" + boolToString(success) + "-" + storeID
+	durationMs := int(duration.Milliseconds())
+	
+	sc.mutex.Lock()
+	defer sc.mutex.Unlock()
+	
+	if existing, exists := sc.stats.DataStoreAccess[key]; exists {
+		existing.Metrics.TotalCount++
+		existing.Metrics.currentCount++
+		existing.Metrics.currentDurations = append(existing.Metrics.currentDurations, durationMs)
+		sc.stats.DataStoreAccess[key] = existing
+	} else {
+		sc.stats.DataStoreAccess[key] = DataStoreStats{
+			StoreID:   storeID,
+			Operation: operation,
+			Success:   success,
+			Metrics: RequestMetrics{
+				TotalCount:       1,
+				currentCount:     1,
+				currentDurations: []int{durationMs},
+			},
 		}
 	}
+}
 
-	// Copy note update requests
-	for shardID, stats := range sc.dataStoreNoteUpdateRequests {
-		dataStoreStats.NoteUpdateRequests[shardID] = RequestStats{
-			TotalRequests:  atomic.LoadInt64(&stats.TotalRequests),
-			RequestsPerSec: stats.RequestsPerSec,
+// Export returns a copy of current stats
+func (sc *inMemoryStatsCollector) Export() Stats {
+	sc.mutex.RLock()
+	defer sc.mutex.RUnlock()
+	
+	// Deep copy the stats
+	exported := Stats{
+		APIRequests:     make(map[string]APIStats),
+		ProxyAccess:     make(map[string]ProxyStats),
+		DataStoreAccess: make(map[string]DataStoreStats),
+	}
+	
+	for k, v := range sc.stats.APIRequests {
+		exported.APIRequests[k] = v
+	}
+	
+	for k, v := range sc.stats.ProxyAccess {
+		exported.ProxyAccess[k] = v
+	}
+	
+	for k, v := range sc.stats.DataStoreAccess {
+		exported.DataStoreAccess[k] = v
+	}
+	
+	return exported
+}
+
+// Import merges incoming stats with existing ones
+func (sc *inMemoryStatsCollector) Import(stats Stats) {
+	sc.mutex.Lock()
+	defer sc.mutex.Unlock()
+	
+	// Merge API requests
+	for key, incoming := range stats.APIRequests {
+		if existing, exists := sc.stats.APIRequests[key]; exists {
+			existing.Metrics.TotalCount += incoming.Metrics.TotalCount
+			sc.stats.APIRequests[key] = existing
+		} else {
+			// Don't include current count/durations as they're from external source
+			incoming.Metrics.currentCount = 0
+			incoming.Metrics.currentDurations = nil
+			sc.stats.APIRequests[key] = incoming
 		}
 	}
-
-	// Copy note delete requests
-	for shardID, stats := range sc.dataStoreNoteDeleteRequests {
-		dataStoreStats.NoteDeleteRequests[shardID] = RequestStats{
-			TotalRequests:  atomic.LoadInt64(&stats.TotalRequests),
-			RequestsPerSec: stats.RequestsPerSec,
+	
+	// Merge proxy access
+	for key, incoming := range stats.ProxyAccess {
+		if existing, exists := sc.stats.ProxyAccess[key]; exists {
+			existing.Metrics.TotalCount += incoming.Metrics.TotalCount
+			sc.stats.ProxyAccess[key] = existing
+		} else {
+			incoming.Metrics.currentCount = 0
+			incoming.Metrics.currentDurations = nil
+			sc.stats.ProxyAccess[key] = incoming
 		}
 	}
+	
+	// Merge data store access
+	for key, incoming := range stats.DataStoreAccess {
+		if existing, exists := sc.stats.DataStoreAccess[key]; exists {
+			existing.Metrics.TotalCount += incoming.Metrics.TotalCount
+			sc.stats.DataStoreAccess[key] = existing
+		} else {
+			incoming.Metrics.currentCount = 0
+			incoming.Metrics.currentDurations = nil
+			sc.stats.DataStoreAccess[key] = incoming
+		}
+	}
+}
 
-	return dataStoreStats
+// tick runs periodically to calculate requests per minute and p95 duration
+func (sc *inMemoryStatsCollector) tick() {
+	ticker := time.NewTicker(TickInterval)
+	defer ticker.Stop()
+	
+	for {
+		select {
+		case <-sc.ctx.Done():
+			return
+		case <-ticker.C:
+			sc.calculateMetrics()
+		}
+	}
+}
+
+// calculateMetrics updates RPM and P95 duration for all metrics
+func (sc *inMemoryStatsCollector) calculateMetrics() {
+	sc.mutex.Lock()
+	defer sc.mutex.Unlock()
+	
+	// Calculate metrics for API requests
+	for key, stats := range sc.stats.APIRequests {
+		stats.Metrics.RequestsPerMin = calculateRPM(stats.Metrics.currentCount)
+		stats.Metrics.DurationP95 = calculateP95(stats.Metrics.currentDurations)
+		stats.Metrics.currentCount = 0
+		stats.Metrics.currentDurations = nil
+		sc.stats.APIRequests[key] = stats
+	}
+	
+	// Calculate metrics for proxy access
+	for key, stats := range sc.stats.ProxyAccess {
+		stats.Metrics.RequestsPerMin = calculateRPM(stats.Metrics.currentCount)
+		stats.Metrics.DurationP95 = calculateP95(stats.Metrics.currentDurations)
+		stats.Metrics.currentCount = 0
+		stats.Metrics.currentDurations = nil
+		sc.stats.ProxyAccess[key] = stats
+	}
+	
+	// Calculate metrics for data store access
+	for key, stats := range sc.stats.DataStoreAccess {
+		stats.Metrics.RequestsPerMin = calculateRPM(stats.Metrics.currentCount)
+		stats.Metrics.DurationP95 = calculateP95(stats.Metrics.currentDurations)
+		stats.Metrics.currentCount = 0
+		stats.Metrics.currentDurations = nil
+		sc.stats.DataStoreAccess[key] = stats
+	}
+}
+
+// calculateRPM converts count per tick interval to requests per minute
+func calculateRPM(count int) int {
+	// TickInterval is 5 seconds, so multiply by 12 to get per-minute rate
+	return count * 12
+}
+
+// calculateP95 calculates the 95th percentile of durations
+func calculateP95(durations []int) int {
+	if len(durations) == 0 {
+		return 0
+	}
+	
+	sorted := make([]int, len(durations))
+	copy(sorted, durations)
+	sort.Ints(sorted)
+	
+	index := int(float64(len(sorted)) * 0.95)
+	if index >= len(sorted) {
+		index = len(sorted) - 1
+	}
+	
+	return sorted[index]
+}
+
+// boolToString converts bool to string for key generation
+func boolToString(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
 }
 
 // Stop gracefully shuts down the stats collector
-func (sc *StatsCollector) Stop() {
+func (sc *inMemoryStatsCollector) Stop() {
 	sc.cancel()
-}
-
-func (sc *StatsCollector) StartRequestRateCalculation() {
-	go func() {
-		ticker := time.NewTicker(1 * time.Second)
-		defer ticker.Stop()
-
-		lastTotal := int64(0)
-		for {
-			select {
-			case <-sc.ctx.Done():
-				return
-			case <-ticker.C:
-				current := atomic.LoadInt64(&sc.totalRequests)
-				rate := current - lastTotal
-				atomic.StoreInt64(&sc.requestsPerSec, rate)
-				lastTotal = current
-			}
-		}
-	}()
-}
-
-func formatBytes(b uint64) string {
-	const unit = 1024
-	if b < unit {
-		return fmt.Sprintf("%d B", b)
-	}
-	div, exp := int64(unit), 0
-	for n := b / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
 }
