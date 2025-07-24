@@ -21,11 +21,11 @@ type ProxyClient struct {
 	id             int
 	baseURL        string
 	client         *http.Client
-	statsCollector *telemetry.StatsCollector
+	statsCollector telemetry.StatsCollector
 }
 
 // NewProxyClient creates a new proxy client
-func NewProxyClient(id int, addr string, statsCollector *telemetry.StatsCollector) *ProxyClient {
+func NewProxyClient(id int, addr string, statsCollector telemetry.StatsCollector) *ProxyClient {
 	return &ProxyClient{
 		id:      id,
 		baseURL: addr,
@@ -87,7 +87,10 @@ func (p *ProxyClient) makeJSONRPCRequest(ctx context.Context, method string, par
 // ListNotes implements NoteStore interface
 func (p *ProxyClient) ListNotes(ctx context.Context, accountID uuid.UUID) ([]store.Note, error) {
 	if p.statsCollector != nil {
-		p.statsCollector.IncrementProxyNoteList(p.id)
+		start := time.Now()
+		defer func() {
+			p.statsCollector.TrackProxyAccess("ListNotes", time.Since(start), p.id, err == nil)
+		}()
 	}
 
 	params := map[string]interface{}{
@@ -110,7 +113,10 @@ func (p *ProxyClient) ListNotes(ctx context.Context, accountID uuid.UUID) ([]sto
 // GetNote implements NoteStore interface
 func (p *ProxyClient) GetNote(ctx context.Context, accountID, noteID uuid.UUID) (*store.Note, error) {
 	if p.statsCollector != nil {
-		p.statsCollector.IncrementProxyNoteRead(p.id)
+		start := time.Now()
+		defer func() {
+			p.statsCollector.TrackProxyAccess("GetNote", time.Since(start), p.id, err == nil)
+		}()
 	}
 
 	params := map[string]interface{}{
@@ -134,7 +140,10 @@ func (p *ProxyClient) GetNote(ctx context.Context, accountID, noteID uuid.UUID) 
 // CreateNote implements NoteStore interface
 func (p *ProxyClient) CreateNote(ctx context.Context, accountID uuid.UUID, note store.Note) error {
 	if p.statsCollector != nil {
-		p.statsCollector.IncrementProxyNoteCreate(p.id)
+		start := time.Now()
+		defer func() {
+			p.statsCollector.TrackProxyAccess("CreateNote", time.Since(start), p.id, err == nil)
+		}()
 	}
 
 	params := map[string]interface{}{
@@ -149,7 +158,10 @@ func (p *ProxyClient) CreateNote(ctx context.Context, accountID uuid.UUID, note 
 // UpdateNote implements NoteStore interface
 func (p *ProxyClient) UpdateNote(ctx context.Context, accountID uuid.UUID, note store.Note) error {
 	if p.statsCollector != nil {
-		p.statsCollector.IncrementProxyNoteUpdate(p.id)
+		start := time.Now()
+		defer func() {
+			p.statsCollector.TrackProxyAccess("UpdateNote", time.Since(start), p.id, err == nil)
+		}()
 	}
 
 	params := map[string]interface{}{
@@ -164,7 +176,10 @@ func (p *ProxyClient) UpdateNote(ctx context.Context, accountID uuid.UUID, note 
 // DeleteNote implements NoteStore interface
 func (p *ProxyClient) DeleteNote(ctx context.Context, accountID uuid.UUID, note store.Note) error {
 	if p.statsCollector != nil {
-		p.statsCollector.IncrementProxyNoteDelete(p.id)
+		start := time.Now()
+		defer func() {
+			p.statsCollector.TrackProxyAccess("DeleteNote", time.Since(start), p.id, err == nil)
+		}()
 	}
 
 	params := map[string]interface{}{
@@ -223,15 +238,15 @@ func (p *ProxyClient) Ready(ctx context.Context) error {
 }
 
 // ExportShardStats retrieves data store statistics from the proxy
-func (p *ProxyClient) ExportShardStats(ctx context.Context) (*telemetry.DataStoreStats, error) {
+func (p *ProxyClient) ExportShardStats(ctx context.Context) (telemetry.Stats, error) {
 	result, err := p.makeJSONRPCRequest(ctx, "ExportShardStats", nil)
 	if err != nil {
-		return nil, err
+		return telemetry.Stats{}, err
 	}
 
-	var stats *telemetry.DataStoreStats
+	var stats telemetry.Stats
 	if err := json.Unmarshal(result, &stats); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal shard stats: %w", err)
+		return telemetry.Stats{}, fmt.Errorf("failed to unmarshal shard stats: %w", err)
 	}
 
 	return stats, nil

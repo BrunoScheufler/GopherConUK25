@@ -101,7 +101,7 @@ func (dc *DeploymentController) Deploy() error {
 		// Initial deployment - no current proxy exists
 		dc.setStatus(StatusRolloutLaunchNew)
 
-		dataProxyProcess, err := LaunchDataProxy(1, dc.telemetry.StatsCollector)
+		dataProxyProcess, err := LaunchDataProxy(1, dc.telemetry.GetStatsCollector())
 		if err != nil {
 			dc.setStatus(StatusInitial)
 			return fmt.Errorf("failed to launch initial data proxy: %w", err)
@@ -126,7 +126,7 @@ func (dc *DeploymentController) Deploy() error {
 
 	// Launch new proxy with incremented ID
 	newID := previousID + 1
-	newDataProxyProcess, err := LaunchDataProxy(newID, dc.telemetry.StatsCollector)
+	newDataProxyProcess, err := LaunchDataProxy(newID, dc.telemetry.GetStatsCollector())
 	if err != nil {
 		dc.setStatus(StatusReady)
 		return fmt.Errorf("failed to launch new data proxy: %w", err)
@@ -332,59 +332,22 @@ func (dc *DeploymentController) collectProxyStats() {
 	telemetry := dc.telemetry
 	dc.mu.RUnlock()
 
-	if telemetry == nil || telemetry.StatsCollector == nil {
+	if telemetry == nil {
 		return
 	}
 
 	// Collect stats from current proxy
 	if current != nil {
 		if stats, err := current.ProxyClient.ExportShardStats(ctx); err == nil {
-			dc.ingestDataStoreStats(stats, telemetry.StatsCollector)
+			telemetry.GetStatsCollector().Import(stats)
 		}
 	}
 
 	// Collect stats from previous proxy
 	if previous != nil {
 		if stats, err := previous.ProxyClient.ExportShardStats(ctx); err == nil {
-			dc.ingestDataStoreStats(stats, telemetry.StatsCollector)
+			telemetry.GetStatsCollector().Import(stats)
 		}
 	}
 }
 
-// ingestDataStoreStats ingests the stats from proxy into the local stats collector
-func (dc *DeploymentController) ingestDataStoreStats(stats *telemetry.DataStoreStats, localCollector *telemetry.StatsCollector) {
-	// Ingest note list requests
-	for shardID, reqStats := range stats.NoteListRequests {
-		for i := int64(0); i < reqStats.TotalRequests; i++ {
-			localCollector.IncrementDataStoreNoteList(shardID)
-		}
-	}
-
-	// Ingest note read requests
-	for shardID, reqStats := range stats.NoteReadRequests {
-		for i := int64(0); i < reqStats.TotalRequests; i++ {
-			localCollector.IncrementDataStoreNoteRead(shardID)
-		}
-	}
-
-	// Ingest note create requests
-	for shardID, reqStats := range stats.NoteCreateRequests {
-		for i := int64(0); i < reqStats.TotalRequests; i++ {
-			localCollector.IncrementDataStoreNoteCreate(shardID)
-		}
-	}
-
-	// Ingest note update requests
-	for shardID, reqStats := range stats.NoteUpdateRequests {
-		for i := int64(0); i < reqStats.TotalRequests; i++ {
-			localCollector.IncrementDataStoreNoteUpdate(shardID)
-		}
-	}
-
-	// Ingest note delete requests
-	for shardID, reqStats := range stats.NoteDeleteRequests {
-		for i := int64(0); i < reqStats.TotalRequests; i++ {
-			localCollector.IncrementDataStoreNoteDelete(shardID)
-		}
-	}
-}
