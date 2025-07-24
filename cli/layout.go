@@ -423,35 +423,133 @@ func (c *CLIApp) formatDeployments(theme Theme) string {
 	return result.String()
 }
 
+// formatProxyTable creates a formatted table for proxy statistics
+func (c *CLIApp) formatProxyTable(headers []string, rows [][]string, theme Theme) string {
+	if len(rows) == 0 {
+		return ""
+	}
+
+	var headerColor, borderColor string
+	if theme.Name == "light" {
+		headerColor = "[navy]"
+		borderColor = "[darkgray]"
+	} else {
+		headerColor = "[yellow]"
+		borderColor = "[gray]"
+	}
+
+	// Calculate column widths
+	colWidths := make([]int, len(headers))
+	for i, header := range headers {
+		colWidths[i] = len(header)
+	}
+	
+	for _, row := range rows {
+		for i, cell := range row {
+			if i < len(colWidths) {
+				// Remove color codes for width calculation
+				cleanCell := strings.ReplaceAll(cell, "[-]", "")
+				for _, colorCode := range []string{"[navy]", "[black]", "[darkgreen]", "[darkred]", "[yellow]", "[white]", "[green]", "[red]", "[grey]", "[darkgray]"} {
+					cleanCell = strings.ReplaceAll(cleanCell, colorCode, "")
+				}
+				if len(cleanCell) > colWidths[i] {
+					colWidths[i] = len(cleanCell)
+				}
+			}
+		}
+	}
+
+	var result strings.Builder
+	
+	// Indent for deployment view
+	indent := "  "
+	
+	// Header row
+	result.WriteString(indent + headerColor)
+	for i, header := range headers {
+		if i > 0 {
+			result.WriteString(" │ ")
+		}
+		result.WriteString(fmt.Sprintf("%-*s", colWidths[i], header))
+	}
+	result.WriteString("[-]\n")
+	
+	// Separator line
+	result.WriteString(indent + borderColor)
+	for i := range headers {
+		if i > 0 {
+			result.WriteString("─┼─")
+		}
+		result.WriteString(strings.Repeat("─", colWidths[i]))
+	}
+	result.WriteString("[-]\n")
+	
+	// Data rows
+	for _, row := range rows {
+		result.WriteString(indent)
+		for i, cell := range row {
+			if i > 0 {
+				result.WriteString(" │ ")
+			}
+			// For colored cells, we need to pad after removing color codes
+			cleanCell := cell
+			for _, colorCode := range []string{"[navy]", "[black]", "[darkgreen]", "[darkred]", "[yellow]", "[white]", "[green]", "[red]", "[grey]", "[darkgray]", "[-]"} {
+				cleanCell = strings.ReplaceAll(cleanCell, colorCode, "")
+			}
+			padding := colWidths[i] - len(cleanCell)
+			result.WriteString(cell)
+			if padding > 0 {
+				result.WriteString(strings.Repeat(" ", padding))
+			}
+		}
+		result.WriteString("\n")
+	}
+	
+	return result.String()
+}
+
 // formatProxyStatsForVersion adds proxy statistics for a specific deployment version
 func (c *CLIApp) formatProxyStatsForVersion(result *strings.Builder, proxyID int, stats telemetry.Stats, labelColor, valueColor, successColor, errorColor string) {
 	// Find proxy stats for this specific proxy ID
-	found := false
+	var proxyStats []*telemetry.ProxyStats
 	for _, stat := range stats.ProxyAccess {
 		if stat.ProxyID == proxyID {
-			if !found {
-				result.WriteString(fmt.Sprintf("  %sProxy Access:[-]\n", labelColor))
-				found = true
-			}
-			
-			statusColor := successColor
-			statusIcon := "✓"
-			if !stat.Success {
-				statusColor = errorColor
-				statusIcon = "✗"
-			}
-			
-			result.WriteString(fmt.Sprintf("    %s%s %s%s[-] %sTotal: %s%d[-] %sRPM: %s%d[-] %sP95: %s%dms[-]\n",
-				labelColor, stat.Operation, statusColor, statusIcon,
-				labelColor, valueColor, stat.Metrics.TotalCount,
-				labelColor, valueColor, stat.Metrics.RequestsPerMin,
-				labelColor, valueColor, stat.Metrics.DurationP95))
+			proxyStats = append(proxyStats, stat)
 		}
 	}
 	
-	if !found {
+	if len(proxyStats) == 0 {
 		result.WriteString(fmt.Sprintf("  %sProxy Access: No activity[-]\n", labelColor))
+		return
 	}
+	
+	result.WriteString(fmt.Sprintf("  %sProxy Access:[-]\n", labelColor))
+	
+	// Prepare table data
+	headers := []string{"Operation", "Status", "Total", "RPM", "P95ms"}
+	var rows [][]string
+	
+	for _, stat := range proxyStats {
+		statusColor := successColor
+		statusIcon := "✓"
+		if !stat.Success {
+			statusColor = errorColor
+			statusIcon = "✗"
+		}
+		
+		row := []string{
+			fmt.Sprintf("%s%s[-]", labelColor, stat.Operation),
+			fmt.Sprintf("%s%s[-]", statusColor, statusIcon),
+			fmt.Sprintf("%s%d[-]", valueColor, stat.Metrics.TotalCount),
+			fmt.Sprintf("%s%d[-]", valueColor, stat.Metrics.RequestsPerMin),
+			fmt.Sprintf("%s%d[-]", valueColor, stat.Metrics.DurationP95),
+		}
+		rows = append(rows, row)
+	}
+	
+	// Format the table
+	theme := GetTheme(c.options.Theme)
+	result.WriteString(c.formatProxyTable(headers, rows, theme))
 }
 
 func (c *CLIApp) shardMetricsUpdateLoop() {
