@@ -55,9 +55,24 @@ type Note struct {
 }
 ```
 
-### Running the application
+> [!INFO]
+> As you can see in the struct above, note content is stored in a single field. In a real production application, we might want to break down content even further to avoid migrating excessive amounts of data. For the sake of simplicity, I have omitted this step.
 
-When started, the application will simulate user activity by generating random notes. In case you want to perform manual checks, you can interact with the application using the CLI or a REST client like [Postman](https://www.postman.com/) or [Insomnia](https://insomnia.rest/).
+### Running the application with load generation
+
+When started with the `--gen` flag, the application will simulate user activity by generating random notes. You can customize the load generation using the following options:
+
+- `--concurrency <number>`: How many accounts to simulate, defaults to 5.
+- `--notes-per-account`: How many notes to manage per account, defaults to 3.
+- `--rpm`: How many requests per minute each account should perform, defaults to 60, or one request per second.
+
+As you can see, you can easily adjust the load on the system by simulating more accounts, more notes per account, or increasing the requests per minute performed by each account.
+
+In this simulation, users are very strict: Whenever the APIs return invalid or unexpected note content, this will be visible to you in the UI. This way, "users" act as **consistency checks** for the migration.
+
+### Accessing the API
+
+In case you want to perform manual checks, you can interact with the application using the CLI or a REST client like [Postman](https://www.postman.com/) or [Insomnia](https://insomnia.rest/).
 
 Interesting routes to check include
 
