@@ -12,6 +12,7 @@ import (
 
 // DataProxy implements the NoteStore interface with synchronization
 type DataProxy struct {
+	proxyID        int
 	port           int
 	noteStore      store.NoteStore
 	statsCollector telemetry.StatsCollector
@@ -21,11 +22,12 @@ type DataProxy struct {
 }
 
 // NewDataProxy creates a new DataProxy instance with a SQLite note store
-func NewDataProxy(port int) (*DataProxy, error) {
+func NewDataProxy(id int, port int) (*DataProxy, error) {
 	// Create a local stats collector for data store tracking
 	statsCollector := telemetry.NewStatsCollector()
 
 	p := &DataProxy{
+		proxyID:        id,
 		port:           port,
 		statsCollector: statsCollector,
 	}
@@ -42,4 +44,3 @@ func NewDataProxy(port int) (*DataProxy, error) {
 func (p *DataProxy) Run(ctx context.Context) error {
 	return p.startServer(ctx)
 }
-

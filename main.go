@@ -30,6 +30,7 @@ type Config struct {
 
 	// Proxy configuration
 	ProxyMode bool
+	ProxyID   int
 	ProxyPort int
 
 	// Load generator configuration
@@ -55,6 +56,7 @@ func main() {
 
 	// Proxy flags
 	proxyMode := flag.Bool("proxy", false, "Run as data proxy")
+	proxyID := flag.Int("proxy-id", 0, "proxy ID to use (required with --proxy)")
 	proxyPort := flag.Int("proxy-port", 0, "Port for data proxy (required with --proxy)")
 
 	// Load generator flags
@@ -72,6 +74,7 @@ func main() {
 		LogLevel:        *logLevel,
 		ProxyMode:       *proxyMode,
 		ProxyPort:       *proxyPort,
+		ProxyID:         *proxyID,
 		EnableLoadGen:   *enableLoadGen,
 		AccountCount:    *accountCount,
 		NotesPerAccount: *notesPerAccount,
@@ -234,7 +237,7 @@ func Run(config Config) error {
 		if config.ProxyPort == 0 {
 			return fmt.Errorf("--proxy-port is required when using --proxy")
 		}
-		return runDataProxy(config.ProxyPort)
+		return runDataProxy(config.ProxyID, config.ProxyPort)
 	}
 
 	components, err := initializeApplication(config)
@@ -261,7 +264,7 @@ func Run(config Config) error {
 }
 
 // runDataProxy starts a data proxy server on the specified port
-func runDataProxy(port int) error {
+func runDataProxy(id int, port int) error {
 	// Create context that cancels on signals
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -276,7 +279,7 @@ func runDataProxy(port int) error {
 	}()
 
 	// Create data proxy with notes shard
-	dataProxy, err := proxy.NewDataProxy(port)
+	dataProxy, err := proxy.NewDataProxy(id, port)
 	if err != nil {
 		return fmt.Errorf("failed to create data proxy: %w", err)
 	}

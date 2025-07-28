@@ -46,7 +46,12 @@ func LaunchDataProxy(id int, statsCollector telemetry.StatsCollector) (*DataProx
 	logCapture := telemetry.NewLogCapture(1000)
 
 	// Build the command to run the proxy
-	cmd := exec.Command("go", "run", ".", "--proxy", "--proxy-port", fmt.Sprintf("%d", port))
+	cmd := exec.Command(
+		"go", "run", ".",
+		"--proxy",
+		"--proxy-port", fmt.Sprintf("%d", port),
+		"--proxy-id", fmt.Sprintf("%d", id),
+	)
 	cmd.Dir, err = os.Getwd()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get working directory: %w", err)
@@ -137,4 +142,3 @@ func (dpp *DataProxyProcess) Shutdown() error {
 		return nil
 	}
 }
-

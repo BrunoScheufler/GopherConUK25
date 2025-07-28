@@ -29,7 +29,7 @@ func (p *DataProxy) init() error {
 // lockWithContentionTracking attempts to acquire the lock
 func (p *DataProxy) lockWithContentionTracking(operation string) {
 	for !p.mu.TryLock() {
-		_ = p.statsCollector.TrackDataStoreAccess(operation, 0, p.shardID, telemetry.DataStoreAccessStatusContention)
+		_ = p.statsCollector.TrackProxyAccess(operation, 0, p.proxyID, telemetry.ProxyAccessStatusContention)
 		time.Sleep(5 * time.Millisecond)
 	}
 }
