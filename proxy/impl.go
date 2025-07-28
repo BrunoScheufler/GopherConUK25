@@ -79,6 +79,7 @@ func (p *DataProxy) CreateNote(ctx context.Context, accountDetails AccountDetail
 	_ = accountDetails
 
 	start := time.Now()
+
 	// TODO: Create note on new store instead of legacy store
 	err := p.legacyNoteStore.CreateNote(ctx, accountDetails.AccountID, note)
 
