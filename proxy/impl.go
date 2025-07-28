@@ -26,14 +26,6 @@ func (p *DataProxy) init() error {
 	return nil
 }
 
-// lockWithContentionTracking attempts to acquire the lock
-func (p *DataProxy) lockWithContentionTracking(operation string) {
-	for !p.mu.TryLock() {
-		_ = p.statsCollector.TrackProxyAccess(operation, 0, p.proxyID, telemetry.ProxyAccessStatusContention)
-		time.Sleep(5 * time.Millisecond)
-	}
-}
-
 // ListNotes implements NoteStore interface with locking
 func (p *DataProxy) ListNotes(ctx context.Context, accountID uuid.UUID) ([]store.Note, error) {
 	p.lockWithContentionTracking("ListNotes")
@@ -140,3 +132,10 @@ func (p *DataProxy) Ready(ctx context.Context) error {
 	return p.HealthCheck(ctx)
 }
 
+// lockWithContentionTracking attempts to acquire the lock
+func (p *DataProxy) lockWithContentionTracking(operation string) {
+	for !p.mu.TryLock() {
+		_ = p.statsCollector.TrackProxyAccess(operation, 0, p.proxyID, telemetry.ProxyAccessStatusContention)
+		time.Sleep(5 * time.Millisecond)
+	}
+}
