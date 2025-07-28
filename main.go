@@ -154,7 +154,7 @@ func setupTelemetry(cliMode bool, logLevel string) *telemetry.Telemetry {
 	if logLevel != "" {
 		options = append(options, telemetry.WithLogLevel(logLevel))
 	}
-	
+
 	tel := telemetry.New(options...)
 	tel.SetupGlobalLogger()
 	tel.Start()
@@ -276,7 +276,7 @@ func runDataProxy(port int) error {
 	}()
 
 	// Create data proxy with notes shard
-	dataProxy, err := proxy.NewDataProxy(port, constants.NoteShard1)
+	dataProxy, err := proxy.NewDataProxy(port)
 	if err != nil {
 		return fmt.Errorf("failed to create data proxy: %w", err)
 	}

@@ -21,24 +21,25 @@ type DataProxy struct {
 }
 
 // NewDataProxy creates a new DataProxy instance with a SQLite note store
-func NewDataProxy(port int, dbName string) (*DataProxy, error) {
-	noteStore, err := store.NewNoteStore(store.DefaultStoreOptions(dbName))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create note store: %w", err)
-	}
-
+func NewDataProxy(port int) (*DataProxy, error) {
 	// Create a local stats collector for data store tracking
 	statsCollector := telemetry.NewStatsCollector()
 
-	return &DataProxy{
+	p := &DataProxy{
 		port:           port,
-		noteStore:      noteStore,
 		statsCollector: statsCollector,
-		shardID:        dbName, // Use dbName as shard ID
-	}, nil
+	}
+
+	err := p.init()
+	if err != nil {
+		return nil, fmt.Errorf("could not initialize data proxy: %w", err)
+	}
+
+	return p, nil
 }
 
 // Run starts the data proxy server
 func (p *DataProxy) Run(ctx context.Context) error {
 	return p.startServer(ctx)
 }
+

@@ -310,20 +310,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(currentLines) == 1 && currentLines[0] == "" {
 			currentLines = []string{}
 		}
-		
+
 		// Add new log entry
 		currentLines = append(currentLines, string(msg))
-		
+
 		// Keep only the most recent 100 lines
 		if len(currentLines) > 100 {
 			currentLines = currentLines[len(currentLines)-100:]
 		}
-		
+
 		// Update viewport content and scroll to bottom
 		newContent := strings.Join(currentLines, "\n")
 		m.logsViewport.SetContent(newContent)
 		m.logsViewport.GotoBottom()
-		
+
 		// Continue listening for more logs
 		return m, m.setupLogCapture()
 	}
@@ -381,8 +381,8 @@ func (m *Model) renderLayout() string {
 // renderVerticalLayout renders all panels vertically for small screens
 func (m *Model) renderVerticalLayout(panelStyle, logsPanelStyle, titleStyle, helpStyle lipgloss.Style, width, height int) string {
 	// Reserve enough space for API and data store tables, give rest to logs
-	minPanelHeight := 12 // Minimum height needed for tables to show content
-	panelHeight := max(minPanelHeight, (height - 20) / 4) // Ensure minimum height
+	minPanelHeight := 12                              // Minimum height needed for tables to show content
+	panelHeight := max(minPanelHeight, (height-20)/4) // Ensure minimum height
 	logsPanelHeight := height - (3 * panelHeight) - 8 // Logs take remaining space
 	panelWidth := width - 4
 
@@ -431,10 +431,10 @@ func (m *Model) renderVerticalLayout(panelStyle, logsPanelStyle, titleStyle, hel
 // renderGridLayout renders panels with API requests & data store access on top, deployment in middle, logs at bottom
 func (m *Model) renderGridLayout(panelStyle, logsPanelStyle, titleStyle, helpStyle lipgloss.Style, width, height int) string {
 	// Calculate panel dimensions - ensure tables have enough space
-	panelWidth := (width - 6) / 2                                    // Two columns with margins for top row
-	minTopPanelHeight := 12 // Minimum height needed for tables to show content
-	topPanelHeight := max(minTopPanelHeight, (height - 20) / 4)      // Top row gets space for content
-	middlePanelHeight := max(8, (height - 20) / 6)                   // Middle deployment panel gets smaller portion
+	panelWidth := (width - 6) / 2                                       // Two columns with margins for top row
+	minTopPanelHeight := 12                                             // Minimum height needed for tables to show content
+	topPanelHeight := max(minTopPanelHeight, (height-20)/4)             // Top row gets space for content
+	middlePanelHeight := max(8, (height-20)/6)                          // Middle deployment panel gets smaller portion
 	logsPanelHeight := height - topPanelHeight - middlePanelHeight - 12 // Logs take remaining space
 
 	// Update table sizes
@@ -502,12 +502,12 @@ func (m *Model) setupLogCapture() tea.Cmd {
 			plainMessage := strings.ReplaceAll(entry.Message, "\n", "")
 			logLines = append(logLines, plainMessage)
 		}
-		
+
 		// Keep only the most recent 100 lines
 		if len(logLines) > 100 {
 			logLines = logLines[len(logLines)-100:]
 		}
-		
+
 		// Set initial viewport content
 		if len(logLines) > 0 {
 			m.logsViewport.SetContent(strings.Join(logLines, "\n"))
@@ -629,8 +629,13 @@ func (m *Model) updateDataStoreStats() {
 
 	var rows []table.Row
 	for _, stat := range dataStoreStats {
-		statusIcon := "✓"
-		if !stat.Success {
+		var statusIcon string
+		switch stat.Status {
+		case telemetry.DataStoreAccessStatusSuccess:
+			statusIcon = "✓"
+		case telemetry.DataStoreAccessStatusContention:
+			statusIcon = "c"
+		case telemetry.DataStoreAccessStatusError:
 			statusIcon = "✗"
 		}
 
@@ -685,26 +690,26 @@ func (m *Model) renderDeploymentContent() string {
 	// Status with styling and inline progress bar
 	status := m.appConfig.DeploymentController.Status()
 	statusStyle := lipgloss.NewStyle().Foreground(m.theme.Highlight).Bold(true)
-	
+
 	// Check for active deployment progress
 	isActive, elapsedSeconds, totalSeconds, progressPercent := m.appConfig.DeploymentController.GetDeploymentProgress()
-	
+
 	if isActive {
 		remainingSeconds := totalSeconds - elapsedSeconds
 		progressDecimal := float64(progressPercent) / 100.0
 		progressBar := m.progressBar.ViewAs(progressDecimal)
 		progressStyle := lipgloss.NewStyle().Foreground(m.theme.Primary)
-		
+
 		// Render status and progress bar side by side
 		statusText := fmt.Sprintf("Status: %s", statusStyle.Render(status.String()))
-		progressText := fmt.Sprintf("%s %d%% (%ds remaining)", 
+		progressText := fmt.Sprintf("%s %d%% (%ds remaining)",
 			progressStyle.Render("Progress:"), progressPercent, remainingSeconds)
-		
-		headerLine := lipgloss.JoinHorizontal(lipgloss.Top, 
-			statusText, 
+
+		headerLine := lipgloss.JoinHorizontal(lipgloss.Top,
+			statusText,
 			strings.Repeat(" ", 4), // Spacing
 			progressText)
-		
+
 		content.WriteString(headerLine + "\n" + progressBar + "\n")
 	} else {
 		// Just show status when no active deployment
@@ -741,7 +746,7 @@ func (m *Model) renderDeploymentVersions() string {
 		currentContent.WriteString(subtleStyle.Render("None") + "\n")
 	}
 
-	// Build previous deployment column  
+	// Build previous deployment column
 	var previousContent strings.Builder
 	previousContent.WriteString(headerStyle.Render("Previous") + "\n")
 	if previous != nil {
@@ -753,25 +758,25 @@ func (m *Model) renderDeploymentVersions() string {
 	}
 
 	// Join deployment info horizontally with spacing
-	deploymentInfo := lipgloss.JoinHorizontal(lipgloss.Top, 
+	deploymentInfo := lipgloss.JoinHorizontal(lipgloss.Top,
 		currentContent.String(),
 		strings.Repeat(" ", 10), // Spacing between columns
 		previousContent.String())
 
 	// Create proxy stats tables - one per version
 	proxyTables := m.createProxyStatsTables(current, previous, stats)
-	
+
 	if proxyTables != "" {
 		return deploymentInfo + "\n\n" + proxyTables
 	}
-	
+
 	return deploymentInfo
 }
 
 // createProxyStatsTables creates separate tables for each deployment version
 func (m *Model) createProxyStatsTables(current, previous *proxy.DataProxyProcess, stats telemetry.Stats) string {
 	var tables []string
-	
+
 	// Create table for current deployment
 	if current != nil {
 		currentTable := m.createSingleProxyStatsTable(current, stats, "Current")
@@ -779,7 +784,7 @@ func (m *Model) createProxyStatsTables(current, previous *proxy.DataProxyProcess
 			tables = append(tables, currentTable)
 		}
 	}
-	
+
 	// Create table for previous deployment
 	if previous != nil {
 		previousTable := m.createSingleProxyStatsTable(previous, stats, "Previous")
@@ -787,11 +792,11 @@ func (m *Model) createProxyStatsTables(current, previous *proxy.DataProxyProcess
 			tables = append(tables, previousTable)
 		}
 	}
-	
+
 	if len(tables) == 0 {
 		return ""
 	}
-	
+
 	// Join tables horizontally with spacing
 	if len(tables) == 1 {
 		return tables[0]
@@ -834,11 +839,16 @@ func (m *Model) createSingleProxyStatsTable(deployment *proxy.DataProxyProcess, 
 	// Create table rows
 	var rows []table.Row
 	for _, stat := range proxyStats {
-		statusIcon := "✓"
-		if !stat.Success {
+		var statusIcon string
+		switch stat.Status {
+		case telemetry.ProxyAccessStatusSuccess:
+			statusIcon = "✓"
+		case telemetry.ProxyAccessStatusContention:
+			statusIcon = "c"
+		case telemetry.ProxyAccessStatusError:
 			statusIcon = "✗"
 		}
-		
+
 		row := table.Row{
 			stat.Operation,
 			statusIcon,
@@ -871,7 +881,7 @@ func (m *Model) createSingleProxyStatsTable(deployment *proxy.DataProxyProcess, 
 	// Add title above the table
 	titleStyle := lipgloss.NewStyle().Foreground(m.theme.Highlight).Bold(true)
 	tableTitle := titleStyle.Render(fmt.Sprintf("%s (v%d) Proxy Stats", title, deployment.ID))
-	
+
 	return tableTitle + "\n" + proxyTable.View()
 }
 
@@ -894,7 +904,7 @@ func (m *Model) getProxyStatsForDeployment(deploymentID int, stats telemetry.Sta
 	for _, stat := range proxyStats {
 		statusIcon := "✓"
 		statusColor := m.theme.Success
-		if !stat.Success {
+		if stat.Status != telemetry.ProxyAccessStatusSuccess {
 			statusIcon = "✗"
 			statusColor = m.theme.Error
 		}
@@ -911,7 +921,6 @@ func (m *Model) getProxyStatsForDeployment(deploymentID int, stats telemetry.Sta
 
 	return content.String()
 }
-
 
 func (m *Model) renderLogsContent(maxHeight int) string {
 	// Update viewport dimensions if changed
@@ -984,17 +993,17 @@ func (m *Model) adjustTableSizes() {
 	if availableWidth < 120 || availableHeight < 30 {
 		// Vertical layout - logs panel gets remaining space
 		minPanelHeight := 12
-		panelHeight := max(minPanelHeight, (availableHeight - 20) / 4)
+		panelHeight := max(minPanelHeight, (availableHeight-20)/4)
 		logsPanelHeight := availableHeight - (3 * panelHeight) - 8
 		viewportWidth = availableWidth - 6
-		viewportHeight = max(5, logsPanelHeight - 2) // Account for title and padding
+		viewportHeight = max(5, logsPanelHeight-2) // Account for title and padding
 	} else {
 		// Grid layout - logs panel at bottom with full width
-		topPanelHeight := max(12, (availableHeight - 20) / 4)
-		middlePanelHeight := max(8, (availableHeight - 20) / 6)
+		topPanelHeight := max(12, (availableHeight-20)/4)
+		middlePanelHeight := max(8, (availableHeight-20)/6)
 		logsPanelHeight := availableHeight - topPanelHeight - middlePanelHeight - 12
 		viewportWidth = availableWidth - 4
-		viewportHeight = max(5, logsPanelHeight - 2) // Account for title and padding
+		viewportHeight = max(5, logsPanelHeight-2) // Account for title and padding
 	}
 
 	// Adjust column widths based on available width
@@ -1091,4 +1100,3 @@ func max(a, b int) int {
 	}
 	return b
 }
-

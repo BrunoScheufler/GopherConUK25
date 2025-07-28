@@ -89,8 +89,12 @@ func (p *ProxyClient) ListNotes(ctx context.Context, accountID uuid.UUID) (notes
 	if p.statsCollector != nil {
 		start := time.Now()
 		defer func() {
+			status := telemetry.ProxyAccessStatusSuccess
+			if err != nil {
+				status = telemetry.ProxyAccessStatusError
+			}
 			// Track metrics, ignoring errors to avoid disrupting main operation
-			_ = p.statsCollector.TrackProxyAccess("ListNotes", time.Since(start), p.id, err == nil)
+			_ = p.statsCollector.TrackProxyAccess("ListNotes", time.Since(start), p.id, status)
 		}()
 	}
 
@@ -116,8 +120,12 @@ func (p *ProxyClient) GetNote(ctx context.Context, accountID, noteID uuid.UUID) 
 	if p.statsCollector != nil {
 		start := time.Now()
 		defer func() {
+			status := telemetry.ProxyAccessStatusSuccess
+			if err != nil {
+				status = telemetry.ProxyAccessStatusError
+			}
 			// Track metrics, ignoring errors to avoid disrupting main operation
-			_ = p.statsCollector.TrackProxyAccess("GetNote", time.Since(start), p.id, err == nil)
+			_ = p.statsCollector.TrackProxyAccess("GetNote", time.Since(start), p.id, status)
 		}()
 	}
 
@@ -144,8 +152,12 @@ func (p *ProxyClient) CreateNote(ctx context.Context, accountID uuid.UUID, note 
 	if p.statsCollector != nil {
 		start := time.Now()
 		defer func() {
+			status := telemetry.ProxyAccessStatusSuccess
+			if err != nil {
+				status = telemetry.ProxyAccessStatusError
+			}
 			// Track metrics, ignoring errors to avoid disrupting main operation
-			_ = p.statsCollector.TrackProxyAccess("CreateNote", time.Since(start), p.id, err == nil)
+			_ = p.statsCollector.TrackProxyAccess("CreateNote", time.Since(start), p.id, status)
 		}()
 	}
 
@@ -163,8 +175,12 @@ func (p *ProxyClient) UpdateNote(ctx context.Context, accountID uuid.UUID, note 
 	if p.statsCollector != nil {
 		start := time.Now()
 		defer func() {
+			status := telemetry.ProxyAccessStatusSuccess
+			if err != nil {
+				status = telemetry.ProxyAccessStatusError
+			}
 			// Track metrics, ignoring errors to avoid disrupting main operation
-			_ = p.statsCollector.TrackProxyAccess("UpdateNote", time.Since(start), p.id, err == nil)
+			_ = p.statsCollector.TrackProxyAccess("UpdateNote", time.Since(start), p.id, status)
 		}()
 	}
 
@@ -182,8 +198,12 @@ func (p *ProxyClient) DeleteNote(ctx context.Context, accountID uuid.UUID, note 
 	if p.statsCollector != nil {
 		start := time.Now()
 		defer func() {
+			status := telemetry.ProxyAccessStatusSuccess
+			if err != nil {
+				status = telemetry.ProxyAccessStatusError
+			}
 			// Track metrics, ignoring errors to avoid disrupting main operation
-			_ = p.statsCollector.TrackProxyAccess("DeleteNote", time.Since(start), p.id, err == nil)
+			_ = p.statsCollector.TrackProxyAccess("DeleteNote", time.Since(start), p.id, status)
 		}()
 	}
 

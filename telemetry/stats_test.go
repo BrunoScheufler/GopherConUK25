@@ -103,11 +103,11 @@ func TestProxyAccessMetrics_EmptyState(t *testing.T) {
 	defer collector.Stop()
 	
 	// Test tracking proxy access on empty state
-	err := collector.TrackProxyAccess("CreateNote", 50*time.Millisecond, 1, true)
+	err := collector.TrackProxyAccess("CreateNote", 50*time.Millisecond, 1, ProxyAccessStatusSuccess)
 	require.NoError(t, err, "Failed to track proxy access")
 	
 	// Verify internal state
-	key := "CreateNote-true-1"
+	key := "CreateNote-0-1"
 	currentCount, currentDurations := collector.getInternalMetrics(key, "proxy")
 	
 	require.Equal(t, 1, currentCount, "Expected currentCount=1")
@@ -121,7 +121,7 @@ func TestProxyAccessMetrics_EmptyState(t *testing.T) {
 	require.Equal(t, 1, proxyStats.Metrics.TotalCount, "Expected TotalCount=1")
 	require.Equal(t, 1, proxyStats.ProxyID, "Expected ProxyID=1")
 	require.Equal(t, "CreateNote", proxyStats.Operation, "Expected Operation=CreateNote")
-	require.True(t, proxyStats.Success, "Expected Success=true")
+	require.Equal(t, ProxyAccessStatusSuccess, proxyStats.Status, "Expected Status=Success")
 }
 
 func TestProxyAccessMetrics_WithPreviousState(t *testing.T) {
@@ -129,15 +129,15 @@ func TestProxyAccessMetrics_WithPreviousState(t *testing.T) {
 	defer collector.Stop()
 	
 	// Add first proxy access
-	err := collector.TrackProxyAccess("GetNote", 30*time.Millisecond, 2, true)
+	err := collector.TrackProxyAccess("GetNote", 30*time.Millisecond, 2, ProxyAccessStatusSuccess)
 	require.NoError(t, err, "Failed to track first proxy access")
 	
 	// Add second proxy access to same operation
-	err = collector.TrackProxyAccess("GetNote", 45*time.Millisecond, 2, true)
+	err = collector.TrackProxyAccess("GetNote", 45*time.Millisecond, 2, ProxyAccessStatusSuccess)
 	require.NoError(t, err, "Failed to track second proxy access")
 	
 	// Verify internal state
-	key := "GetNote-true-2"
+	key := "GetNote-0-2"
 	currentCount, currentDurations := collector.getInternalMetrics(key, "proxy")
 	
 	require.Equal(t, 2, currentCount, "Expected currentCount=2")
@@ -156,11 +156,11 @@ func TestDataStoreAccessMetrics_EmptyState(t *testing.T) {
 	defer collector.Stop()
 	
 	// Test tracking data store access on empty state
-	err := collector.TrackDataStoreAccess("INSERT", 200*time.Millisecond, "primary", true)
+	err := collector.TrackDataStoreAccess("INSERT", 200*time.Millisecond, "primary", DataStoreAccessStatusSuccess)
 	require.NoError(t, err, "Failed to track data store access")
 	
 	// Verify internal state
-	key := "INSERT-true-primary"
+	key := "INSERT-0-primary"
 	currentCount, currentDurations := collector.getInternalMetrics(key, "datastore")
 	
 	require.Equal(t, 1, currentCount, "Expected currentCount=1")
@@ -174,7 +174,7 @@ func TestDataStoreAccessMetrics_EmptyState(t *testing.T) {
 	require.Equal(t, 1, dsStats.Metrics.TotalCount, "Expected TotalCount=1")
 	require.Equal(t, "primary", dsStats.StoreID, "Expected StoreID=primary")
 	require.Equal(t, "INSERT", dsStats.Operation, "Expected Operation=INSERT")
-	require.True(t, dsStats.Success, "Expected Success=true")
+	require.Equal(t, DataStoreAccessStatusSuccess, dsStats.Status, "Expected Status=Success")
 }
 
 func TestDataStoreAccessMetrics_WithPreviousState(t *testing.T) {
@@ -182,15 +182,15 @@ func TestDataStoreAccessMetrics_WithPreviousState(t *testing.T) {
 	defer collector.Stop()
 	
 	// Add first data store access
-	err := collector.TrackDataStoreAccess("SELECT", 80*time.Millisecond, "secondary", false)
+	err := collector.TrackDataStoreAccess("SELECT", 80*time.Millisecond, "secondary", DataStoreAccessStatusError)
 	require.NoError(t, err, "Failed to track first data store access")
 	
 	// Add second data store access to same operation
-	err = collector.TrackDataStoreAccess("SELECT", 120*time.Millisecond, "secondary", false)
+	err = collector.TrackDataStoreAccess("SELECT", 120*time.Millisecond, "secondary", DataStoreAccessStatusError)
 	require.NoError(t, err, "Failed to track second data store access")
 	
 	// Verify internal state
-	key := "SELECT-false-secondary"
+	key := "SELECT-2-secondary"
 	currentCount, currentDurations := collector.getInternalMetrics(key, "datastore")
 	
 	require.Equal(t, 2, currentCount, "Expected currentCount=2")
@@ -242,7 +242,7 @@ func TestP95DurationCalculation(t *testing.T) {
 	// Add requests with varied durations (10, 20, 30, 40, 50, 60, 70, 80, 90, 100 ms)
 	durations := []int{10, 20, 30, 40, 50, 60, 70, 80, 90, 100}
 	for _, duration := range durations {
-		err := collector.TrackProxyAccess("UpdateNote", time.Duration(duration)*time.Millisecond, 1, true)
+		err := collector.TrackProxyAccess("UpdateNote", time.Duration(duration)*time.Millisecond, 1, ProxyAccessStatusSuccess)
 		require.NoError(t, err, "Failed to track proxy access with duration %d", duration)
 	}
 	
@@ -251,7 +251,7 @@ func TestP95DurationCalculation(t *testing.T) {
 	
 	// Export stats to check calculated P95
 	stats := collector.Export()
-	key := "UpdateNote-true-1"
+	key := "UpdateNote-0-1"
 	proxyStats := stats.ProxyAccess[key]
 	require.NotNil(t, proxyStats, "Expected proxy stats to be present")
 	
@@ -269,7 +269,7 @@ func TestP95DurationCalculation_SmallDataset(t *testing.T) {
 	// Add only 2 requests
 	durations := []int{10, 50}
 	for _, duration := range durations {
-		err := collector.TrackDataStoreAccess("DELETE", time.Duration(duration)*time.Millisecond, "cache", true)
+		err := collector.TrackDataStoreAccess("DELETE", time.Duration(duration)*time.Millisecond, "cache", DataStoreAccessStatusSuccess)
 		require.NoError(t, err, "Failed to track data store access with duration %d", duration)
 	}
 	
@@ -278,7 +278,7 @@ func TestP95DurationCalculation_SmallDataset(t *testing.T) {
 	
 	// Export stats to check calculated P95
 	stats := collector.Export()
-	key := "DELETE-true-cache"
+	key := "DELETE-0-cache"
 	dsStats := stats.DataStoreAccess[key]
 	require.NotNil(t, dsStats, "Expected data store stats to be present")
 	
@@ -381,10 +381,10 @@ func TestImportMergesCorrectly(t *testing.T) {
 			},
 		},
 		ProxyAccess: map[string]*ProxyStats{
-			"GetNote-true-1": {
+			"GetNote-0-1": {
 				ProxyID:   1,
 				Operation: "GetNote",
-				Success:   true,
+				Status:    ProxyAccessStatusSuccess,
 				Metrics: RequestMetrics{
 					TotalCount:     3,
 					RequestsPerMin: 36,
@@ -393,10 +393,10 @@ func TestImportMergesCorrectly(t *testing.T) {
 			},
 		},
 		DataStoreAccess: map[string]*DataStoreStats{
-			"SELECT-true-primary": {
+			"SELECT-0-primary": {
 				StoreID:   "primary",
 				Operation: "SELECT",
-				Success:   true,
+				Status:    DataStoreAccessStatusSuccess,
 				Metrics: RequestMetrics{
 					TotalCount:     10,
 					RequestsPerMin: 120,
@@ -418,12 +418,12 @@ func TestImportMergesCorrectly(t *testing.T) {
 	require.Equal(t, 5, apiStats.Metrics.TotalCount, "Expected imported TotalCount=5")
 	
 	// Check proxy access was imported
-	proxyStats := stats.ProxyAccess["GetNote-true-1"]
+	proxyStats := stats.ProxyAccess["GetNote-0-1"]
 	require.NotNil(t, proxyStats, "Expected imported proxy stats to be present")
 	require.Equal(t, 3, proxyStats.Metrics.TotalCount, "Expected imported TotalCount=3")
 	
 	// Check data store access was imported
-	dsStats := stats.DataStoreAccess["SELECT-true-primary"]
+	dsStats := stats.DataStoreAccess["SELECT-0-primary"]
 	require.NotNil(t, dsStats, "Expected imported data store stats to be present")
 	require.Equal(t, 10, dsStats.Metrics.TotalCount, "Expected imported TotalCount=10")
 	

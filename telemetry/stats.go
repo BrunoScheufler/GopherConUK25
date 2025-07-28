@@ -14,11 +14,27 @@ const (
 	SecondsPerMinute = 60
 )
 
+type DataStoreAccessStatus int
+
+const (
+	DataStoreAccessStatusSuccess DataStoreAccessStatus = iota
+	DataStoreAccessStatusContention
+	DataStoreAccessStatusError
+)
+
+type ProxyAccessStatus int
+
+const (
+	ProxyAccessStatusSuccess ProxyAccessStatus = iota
+	ProxyAccessStatusContention
+	ProxyAccessStatusError
+)
+
 // StatsCollector defines the interface for collecting metrics
 type StatsCollector interface {
 	TrackAPIRequest(method string, path string, duration time.Duration, responseStatusCode int) error
-	TrackProxyAccess(operation string, duration time.Duration, proxyID int, success bool) error
-	TrackDataStoreAccess(operation string, duration time.Duration, storeID string, success bool) error
+	TrackProxyAccess(operation string, duration time.Duration, proxyID int, status ProxyAccessStatus) error
+	TrackDataStoreAccess(operation string, duration time.Duration, storeID string, status DataStoreAccessStatus) error
 	Export() Stats
 	Import(stats Stats)
 	Stop() // Gracefully shut down the stats collector
@@ -26,9 +42,9 @@ type StatsCollector interface {
 
 // RequestMetrics holds metrics for a specific request type
 type RequestMetrics struct {
-	TotalCount       int   `json:"totalCount"`       // Total count of requests. Only goes up.
-	RequestsPerMin   int   `json:"requestsPerMin"`   // Recent requests per minute
-	DurationP95      int   `json:"durationP95"`      // Recent p95 duration in milliseconds
+	TotalCount       int   `json:"totalCount"`     // Total count of requests. Only goes up.
+	RequestsPerMin   int   `json:"requestsPerMin"` // Recent requests per minute
+	DurationP95      int   `json:"durationP95"`    // Recent p95 duration in milliseconds
 	currentCount     int   // Request count in current time window
 	currentDurations []int // Recent durations in milliseconds
 }
@@ -43,18 +59,18 @@ type APIStats struct {
 
 // ProxyStats holds proxy access metrics
 type ProxyStats struct {
-	ProxyID   int            `json:"proxyId"`
-	Operation string         `json:"operation"`
-	Success   bool           `json:"success"`
-	Metrics   RequestMetrics `json:"metrics"`
+	ProxyID   int               `json:"proxyId"`
+	Operation string            `json:"operation"`
+	Status    ProxyAccessStatus `json:"status"`
+	Metrics   RequestMetrics    `json:"metrics"`
 }
 
 // DataStoreStats holds data store access metrics
 type DataStoreStats struct {
-	StoreID   string         `json:"storeId"`
-	Operation string         `json:"operation"`
-	Success   bool           `json:"success"`
-	Metrics   RequestMetrics `json:"metrics"`
+	StoreID   string                `json:"storeId"`
+	Operation string                `json:"operation"`
+	Status    DataStoreAccessStatus `json:"status"`
+	Metrics   RequestMetrics        `json:"metrics"`
 }
 
 // Stats holds all collected metrics
@@ -93,12 +109,12 @@ func NewStatsCollector(options ...StatsCollectorOption) StatsCollector {
 	config := &statsCollectorConfig{
 		autoStart: true, // Default to auto-start for backward compatibility
 	}
-	
+
 	// Apply options
 	for _, option := range options {
 		option(config)
 	}
-	
+
 	ctx, cancel := context.WithCancel(context.Background())
 	collector := &inMemoryStatsCollector{
 		stats: Stats{
@@ -109,12 +125,12 @@ func NewStatsCollector(options ...StatsCollectorOption) StatsCollector {
 		ctx:    ctx,
 		cancel: cancel,
 	}
-	
+
 	// Start the ticker goroutine only if requested
 	if config.autoStart {
 		go collector.tick()
 	}
-	
+
 	return collector
 }
 
@@ -126,12 +142,12 @@ func (sc *inMemoryStatsCollector) trackMetric(keyGen func() string, durationMs i
 		return sc.ctx.Err()
 	default:
 	}
-	
+
 	key := keyGen()
-	
+
 	sc.mutex.Lock()
 	defer sc.mutex.Unlock()
-	
+
 	updateFn(key)
 	return nil
 }
@@ -139,7 +155,7 @@ func (sc *inMemoryStatsCollector) trackMetric(keyGen func() string, durationMs i
 // TrackAPIRequest tracks API request metrics
 func (sc *inMemoryStatsCollector) TrackAPIRequest(method string, path string, duration time.Duration, responseStatusCode int) error {
 	durationMs := int(duration.Milliseconds())
-	
+
 	return sc.trackMetric(
 		func() string {
 			return method + "-" + path + "-" + strconv.Itoa(responseStatusCode)
@@ -167,12 +183,12 @@ func (sc *inMemoryStatsCollector) TrackAPIRequest(method string, path string, du
 }
 
 // TrackProxyAccess tracks proxy access metrics
-func (sc *inMemoryStatsCollector) TrackProxyAccess(operation string, duration time.Duration, proxyID int, success bool) error {
+func (sc *inMemoryStatsCollector) TrackProxyAccess(operation string, duration time.Duration, proxyID int, status ProxyAccessStatus) error {
 	durationMs := int(duration.Milliseconds())
-	
+
 	return sc.trackMetric(
 		func() string {
-			return operation + "-" + strconv.FormatBool(success) + "-" + strconv.Itoa(proxyID)
+			return operation + "-" + strconv.Itoa(int(status)) + "-" + strconv.Itoa(proxyID)
 		},
 		durationMs,
 		func(key string) {
@@ -184,7 +200,7 @@ func (sc *inMemoryStatsCollector) TrackProxyAccess(operation string, duration ti
 				sc.stats.ProxyAccess[key] = &ProxyStats{
 					ProxyID:   proxyID,
 					Operation: operation,
-					Success:   success,
+					Status:    status,
 					Metrics: RequestMetrics{
 						TotalCount:       1,
 						currentCount:     1,
@@ -197,12 +213,12 @@ func (sc *inMemoryStatsCollector) TrackProxyAccess(operation string, duration ti
 }
 
 // TrackDataStoreAccess tracks data store access metrics
-func (sc *inMemoryStatsCollector) TrackDataStoreAccess(operation string, duration time.Duration, storeID string, success bool) error {
+func (sc *inMemoryStatsCollector) TrackDataStoreAccess(operation string, duration time.Duration, storeID string, status DataStoreAccessStatus) error {
 	durationMs := int(duration.Milliseconds())
-	
+
 	return sc.trackMetric(
 		func() string {
-			return operation + "-" + strconv.FormatBool(success) + "-" + storeID
+			return operation + "-" + strconv.Itoa(int(status)) + "-" + storeID
 		},
 		durationMs,
 		func(key string) {
@@ -214,7 +230,7 @@ func (sc *inMemoryStatsCollector) TrackDataStoreAccess(operation string, duratio
 				sc.stats.DataStoreAccess[key] = &DataStoreStats{
 					StoreID:   storeID,
 					Operation: operation,
-					Success:   success,
+					Status:    status,
 					Metrics: RequestMetrics{
 						TotalCount:       1,
 						currentCount:     1,
@@ -230,14 +246,14 @@ func (sc *inMemoryStatsCollector) TrackDataStoreAccess(operation string, duratio
 func (sc *inMemoryStatsCollector) Export() Stats {
 	sc.mutex.RLock()
 	defer sc.mutex.RUnlock()
-	
+
 	// Copy stats excluding internal fields
 	exported := Stats{
 		APIRequests:     make(map[string]*APIStats),
 		ProxyAccess:     make(map[string]*ProxyStats),
 		DataStoreAccess: make(map[string]*DataStoreStats),
 	}
-	
+
 	for k, v := range sc.stats.APIRequests {
 		// Exclude internal fields (currentCount, currentDurations)
 		exportedMetrics := RequestMetrics{
@@ -245,7 +261,7 @@ func (sc *inMemoryStatsCollector) Export() Stats {
 			RequestsPerMin: v.Metrics.RequestsPerMin,
 			DurationP95:    v.Metrics.DurationP95,
 		}
-		
+
 		exported.APIRequests[k] = &APIStats{
 			Method:  v.Method,
 			Route:   v.Route,
@@ -253,7 +269,7 @@ func (sc *inMemoryStatsCollector) Export() Stats {
 			Metrics: exportedMetrics,
 		}
 	}
-	
+
 	for k, v := range sc.stats.ProxyAccess {
 		// Exclude internal fields (currentCount, currentDurations)
 		exportedMetrics := RequestMetrics{
@@ -261,15 +277,15 @@ func (sc *inMemoryStatsCollector) Export() Stats {
 			RequestsPerMin: v.Metrics.RequestsPerMin,
 			DurationP95:    v.Metrics.DurationP95,
 		}
-		
+
 		exported.ProxyAccess[k] = &ProxyStats{
 			ProxyID:   v.ProxyID,
 			Operation: v.Operation,
-			Success:   v.Success,
+			Status:    v.Status,
 			Metrics:   exportedMetrics,
 		}
 	}
-	
+
 	for k, v := range sc.stats.DataStoreAccess {
 		// Exclude internal fields (currentCount, currentDurations)
 		exportedMetrics := RequestMetrics{
@@ -277,15 +293,15 @@ func (sc *inMemoryStatsCollector) Export() Stats {
 			RequestsPerMin: v.Metrics.RequestsPerMin,
 			DurationP95:    v.Metrics.DurationP95,
 		}
-		
+
 		exported.DataStoreAccess[k] = &DataStoreStats{
 			StoreID:   v.StoreID,
 			Operation: v.Operation,
-			Success:   v.Success,
+			Status:    v.Status,
 			Metrics:   exportedMetrics,
 		}
 	}
-	
+
 	return exported
 }
 
@@ -293,11 +309,14 @@ func (sc *inMemoryStatsCollector) Export() Stats {
 func (sc *inMemoryStatsCollector) Import(stats Stats) {
 	sc.mutex.Lock()
 	defer sc.mutex.Unlock()
-	
+
 	// Merge API requests
 	for key, incoming := range stats.APIRequests {
 		if existing, exists := sc.stats.APIRequests[key]; exists {
-			existing.Metrics.TotalCount += incoming.Metrics.TotalCount
+			// Only import the delta (new counts since last import)
+			if incoming.Metrics.TotalCount > existing.Metrics.TotalCount {
+				existing.Metrics.TotalCount = incoming.Metrics.TotalCount
+			}
 		} else {
 			// Don't include current count/durations as they're from external source
 			incoming.Metrics.currentCount = 0
@@ -305,22 +324,28 @@ func (sc *inMemoryStatsCollector) Import(stats Stats) {
 			sc.stats.APIRequests[key] = incoming
 		}
 	}
-	
+
 	// Merge proxy access
 	for key, incoming := range stats.ProxyAccess {
 		if existing, exists := sc.stats.ProxyAccess[key]; exists {
-			existing.Metrics.TotalCount += incoming.Metrics.TotalCount
+			// Only import the delta (new counts since last import)
+			if incoming.Metrics.TotalCount > existing.Metrics.TotalCount {
+				existing.Metrics.TotalCount = incoming.Metrics.TotalCount
+			}
 		} else {
 			incoming.Metrics.currentCount = 0
 			incoming.Metrics.currentDurations = nil
 			sc.stats.ProxyAccess[key] = incoming
 		}
 	}
-	
+
 	// Merge data store access
 	for key, incoming := range stats.DataStoreAccess {
 		if existing, exists := sc.stats.DataStoreAccess[key]; exists {
-			existing.Metrics.TotalCount += incoming.Metrics.TotalCount
+			// Only import the delta (new counts since last import)
+			if incoming.Metrics.TotalCount > existing.Metrics.TotalCount {
+				existing.Metrics.TotalCount = incoming.Metrics.TotalCount
+			}
 		} else {
 			incoming.Metrics.currentCount = 0
 			incoming.Metrics.currentDurations = nil
@@ -333,7 +358,7 @@ func (sc *inMemoryStatsCollector) Import(stats Stats) {
 func (sc *inMemoryStatsCollector) tick() {
 	ticker := time.NewTicker(TickInterval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-sc.ctx.Done():
@@ -348,7 +373,7 @@ func (sc *inMemoryStatsCollector) tick() {
 func (sc *inMemoryStatsCollector) calculateMetrics() {
 	sc.mutex.Lock()
 	defer sc.mutex.Unlock()
-	
+
 	// Calculate metrics for API requests
 	for _, stats := range sc.stats.APIRequests {
 		stats.Metrics.RequestsPerMin = calculateRPM(stats.Metrics.currentCount)
@@ -356,7 +381,7 @@ func (sc *inMemoryStatsCollector) calculateMetrics() {
 		stats.Metrics.currentCount = 0
 		stats.Metrics.currentDurations = nil
 	}
-	
+
 	// Calculate metrics for proxy access
 	for _, stats := range sc.stats.ProxyAccess {
 		stats.Metrics.RequestsPerMin = calculateRPM(stats.Metrics.currentCount)
@@ -364,7 +389,7 @@ func (sc *inMemoryStatsCollector) calculateMetrics() {
 		stats.Metrics.currentCount = 0
 		stats.Metrics.currentDurations = nil
 	}
-	
+
 	// Calculate metrics for data store access
 	for _, stats := range sc.stats.DataStoreAccess {
 		stats.Metrics.RequestsPerMin = calculateRPM(stats.Metrics.currentCount)
@@ -386,21 +411,21 @@ func calculateP95(durations []int) int {
 	if len(durations) == 0 {
 		return 0
 	}
-	
+
 	sorted := make([]int, len(durations))
 	copy(sorted, durations)
 	sort.Ints(sorted)
-	
+
 	index := int(float64(len(sorted)) * 0.95)
 	if index >= len(sorted) {
 		index = len(sorted) - 1
 	}
-	
+
 	return sorted[index]
 }
-
 
 // Stop gracefully shuts down the stats collector
 func (sc *inMemoryStatsCollector) Stop() {
 	sc.cancel()
 }
+
