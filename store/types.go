@@ -40,7 +40,13 @@ type NoteStore interface {
 	ListNotes(ctx context.Context, accountID uuid.UUID) ([]Note, error)
 	GetNote(ctx context.Context, accountID, noteID uuid.UUID) (*Note, error)
 	CreateNote(ctx context.Context, accountID uuid.UUID, note Note) error
+
+	// UpdateNote updates an existing note if, and only if, the update timestamp is newer than the latest version.
+	// This is necessary to ensure the last write wins.
+	// If the note does not exist, ErrNoteNotFound will be returned.
 	UpdateNote(ctx context.Context, accountID uuid.UUID, note Note) error
+
+	// DeleteNote removes a given note. If the note does not exist, ErrNoteNotFound will be returned.
 	DeleteNote(ctx context.Context, accountID uuid.UUID, note Note) error
 	CountNotes(ctx context.Context, accountID uuid.UUID) (int, error)
 	GetTotalNotes(ctx context.Context) (int, error)

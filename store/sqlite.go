@@ -198,12 +198,12 @@ func (s *sqliteNoteStore) CreateNote(ctx context.Context, accountID uuid.UUID, n
 }
 
 func (s *sqliteNoteStore) UpdateNote(ctx context.Context, accountID uuid.UUID, note Note) error {
-	query := `UPDATE notes SET content = ?, updated_at = ? WHERE id = ? AND creator = ?`
+	query := `UPDATE notes SET content = ?, updated_at = ? WHERE id = ? AND creator = ? AND updated_at < ?`
 
 	var result sql.Result
 	err := util.Retry(ctx, defaultRetryConfig, func() error {
 		var execErr error
-		result, execErr = s.db.ExecContext(ctx, query, note.Content, note.UpdatedAt.UnixMilli(), note.ID.String(), accountID.String())
+		result, execErr = s.db.ExecContext(ctx, query, note.Content, note.UpdatedAt.UnixMilli(), note.ID.String(), accountID.String(), note.UpdatedAt.UnixMilli())
 		return execErr
 	})
 	if err != nil {
