@@ -381,7 +381,8 @@ func (m *Model) renderLayout() string {
 // renderVerticalLayout renders all panels vertically for small screens
 func (m *Model) renderVerticalLayout(panelStyle, logsPanelStyle, titleStyle, helpStyle lipgloss.Style, width, height int) string {
 	// Reserve enough space for API and data store tables, give rest to logs
-	minPanelHeight := 12                              // Minimum height needed for tables to show content
+	// Tables now show 3x more rows due to success/contention/error status separation
+	minPanelHeight := 18                              // Increased from 12 to accommodate more rows
 	panelHeight := max(minPanelHeight, (height-20)/4) // Ensure minimum height
 	logsPanelHeight := height - (3 * panelHeight) - 8 // Logs take remaining space
 	panelWidth := width - 4
@@ -432,9 +433,9 @@ func (m *Model) renderVerticalLayout(panelStyle, logsPanelStyle, titleStyle, hel
 func (m *Model) renderGridLayout(panelStyle, logsPanelStyle, titleStyle, helpStyle lipgloss.Style, width, height int) string {
 	// Calculate panel dimensions - ensure tables have enough space
 	panelWidth := (width - 6) / 2                                       // Two columns with margins for top row
-	minTopPanelHeight := 12                                             // Minimum height needed for tables to show content
+	minTopPanelHeight := 18                                             // Increased from 12 to accommodate more rows with status separation
 	topPanelHeight := max(minTopPanelHeight, (height-20)/4)             // Top row gets space for content
-	middlePanelHeight := max(8, (height-20)/6)                          // Middle deployment panel gets smaller portion
+	middlePanelHeight := max(12, (height-20)/6)                         // Increased from 8 to accommodate proxy stats tables
 	logsPanelHeight := height - topPanelHeight - middlePanelHeight - 12 // Logs take remaining space
 
 	// Update table sizes
@@ -568,12 +569,22 @@ func (m *Model) updateAPIStats() {
 	}
 
 	var rows []table.Row
+	// Get the actual route column width from the current table columns
+	routeColumnWidth := 20 // default
+	for i, col := range m.apiTable.Columns() {
+		if col.Title == "Route" && i == 1 { // Route is the second column
+			routeColumnWidth = col.Width
+			break
+		}
+	}
+	
 	for _, pair := range apiStats {
 		stat := pair.stat
-		// Truncate route if too long
+		// Truncate route based on actual column width, leaving room for padding
 		route := stat.Route
-		if len(route) > 18 {
-			route = route[:15] + "..."
+		maxRouteLen := routeColumnWidth - 2 // Leave some padding
+		if len(route) > maxRouteLen && maxRouteLen > 3 {
+			route = route[:maxRouteLen-3] + "..."
 		}
 
 		row := table.Row{
@@ -613,7 +624,7 @@ func (m *Model) updateDataStoreStats() {
 
 	stats := m.appConfig.Telemetry.GetStatsCollector().Export()
 
-	// Sort data store stats alphabetically by operation
+	// Sort data store stats alphabetically by operation, then by status
 	var dataStoreStats []*telemetry.DataStoreStats
 	for _, stat := range stats.DataStoreAccess {
 		dataStoreStats = append(dataStoreStats, stat)
@@ -621,8 +632,14 @@ func (m *Model) updateDataStoreStats() {
 
 	for i := 0; i < len(dataStoreStats); i++ {
 		for j := i + 1; j < len(dataStoreStats); j++ {
+			// First sort by operation name
 			if dataStoreStats[i].Operation > dataStoreStats[j].Operation {
 				dataStoreStats[i], dataStoreStats[j] = dataStoreStats[j], dataStoreStats[i]
+			} else if dataStoreStats[i].Operation == dataStoreStats[j].Operation {
+				// If operations are equal, sort by status (success=0, contention=1, error=2)
+				if dataStoreStats[i].Status > dataStoreStats[j].Status {
+					dataStoreStats[i], dataStoreStats[j] = dataStoreStats[j], dataStoreStats[i]
+				}
 			}
 		}
 	}
@@ -827,11 +844,17 @@ func (m *Model) createSingleProxyStatsTable(deployment *proxy.DataProxyProcess, 
 		{Title: "P95ms", Width: 8},
 	}
 
-	// Sort proxy stats alphabetically by operation
+	// Sort proxy stats alphabetically by operation, then by status
 	for i := 0; i < len(proxyStats); i++ {
 		for j := i + 1; j < len(proxyStats); j++ {
+			// First sort by operation name
 			if proxyStats[i].Operation > proxyStats[j].Operation {
 				proxyStats[i], proxyStats[j] = proxyStats[j], proxyStats[i]
+			} else if proxyStats[i].Operation == proxyStats[j].Operation {
+				// If operations are equal, sort by status (success=0, contention=1, error=2)
+				if proxyStats[i].Status > proxyStats[j].Status {
+					proxyStats[i], proxyStats[j] = proxyStats[j], proxyStats[i]
+				}
 			}
 		}
 	}
@@ -992,15 +1015,17 @@ func (m *Model) adjustTableSizes() {
 	var viewportWidth, viewportHeight int
 	if availableWidth < 120 || availableHeight < 30 {
 		// Vertical layout - logs panel gets remaining space
-		minPanelHeight := 12
+		// Increased panel height to accommodate 3x table rows
+		minPanelHeight := 18
 		panelHeight := max(minPanelHeight, (availableHeight-20)/4)
 		logsPanelHeight := availableHeight - (3 * panelHeight) - 8
 		viewportWidth = availableWidth - 6
 		viewportHeight = max(5, logsPanelHeight-2) // Account for title and padding
 	} else {
 		// Grid layout - logs panel at bottom with full width
-		topPanelHeight := max(12, (availableHeight-20)/4)
-		middlePanelHeight := max(8, (availableHeight-20)/6)
+		// Increased heights to accommodate 3x table rows and proxy stats
+		topPanelHeight := max(18, (availableHeight-20)/4)
+		middlePanelHeight := max(12, (availableHeight-20)/6)
 		logsPanelHeight := availableHeight - topPanelHeight - middlePanelHeight - 12
 		viewportWidth = availableWidth - 4
 		viewportHeight = max(5, logsPanelHeight-2) // Account for title and padding
@@ -1020,13 +1045,25 @@ func (m *Model) adjustTableSizes() {
 // adjustColumnWidths adjusts table column widths based on available space
 func (m *Model) adjustColumnWidths(apiWidth, dataStoreWidth int) {
 	// Calculate column widths for API table
+	// Fixed widths for most columns
+	methodWidth := 8
+	statusWidth := 6
+	totalWidth := 8
+	rpmWidth := 6
+	p95Width := 8
+	
+	// Calculate remaining width for Route column after fixed columns
+	fixedColumnsWidth := methodWidth + statusWidth + totalWidth + rpmWidth + p95Width
+	remainingWidth := apiWidth - fixedColumnsWidth - 10 // Account for padding/borders
+	routeWidth := max(20, min(remainingWidth, apiWidth/2)) // At least 20, at most half the table width
+	
 	apiColumns := []table.Column{
-		{Title: "Method", Width: min(8, apiWidth/6)},
-		{Title: "Route", Width: min(20, apiWidth/3)},
-		{Title: "Status", Width: min(6, apiWidth/10)},
-		{Title: "Total", Width: min(8, apiWidth/8)},
-		{Title: "RPM", Width: min(6, apiWidth/10)},
-		{Title: "P95ms", Width: min(8, apiWidth/8)},
+		{Title: "Method", Width: methodWidth},
+		{Title: "Route", Width: routeWidth},
+		{Title: "Status", Width: statusWidth},
+		{Title: "Total", Width: totalWidth},
+		{Title: "RPM", Width: rpmWidth},
+		{Title: "P95ms", Width: p95Width},
 	}
 
 	// Calculate column widths for data store table
