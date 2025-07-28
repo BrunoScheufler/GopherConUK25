@@ -8,29 +8,30 @@ const (
 	MaxHealthCheckRetries    = 10
 	HealthCheckRetryInterval = 200 * time.Millisecond
 	HealthCheckTimeout       = 5 * time.Second
-	
+
 	// Server configuration
-	DefaultPort              = "8080"
-	GracefulShutdownTimeout  = 5 * time.Second
-	
+	DefaultPort             = "8080"
+	GracefulShutdownTimeout = 5 * time.Second
+
 	// Load generator configuration
-	MillisecondsPerMinute    = 60000
-	LoadGenStartupDelay      = 100 * time.Millisecond
-	
+	MillisecondsPerMinute = 60000
+	LoadGenStartupDelay   = 100 * time.Millisecond
+
 	// Telemetry configuration
 	DefaultLogBufferSize = 1000
 	DefaultStatsInterval = 2 * time.Second
-	
+
 	// Proxy configuration
-	InstrumentInterval = 2 * time.Second
-	ProxyPort          = 9000
+	InstrumentInterval  = 2 * time.Second
+	ProxyPort           = 9000
 	ShardOfflineTimeout = 5 * time.Second
 	RollingReleaseDelay = 5 * time.Second
-	MaxNetworkDelayMs  = 5
-	DeploymentWaitTime = 30 * time.Second
+	MaxNetworkDelayMs   = 5
+	DeploymentWaitTime  = 30 * time.Second
 )
 
-// Shard constants
+// Note store identifier constants
 const (
-	NoteShard1 = "notes1"
+	LegacyNoteStore = "legacy"
 )
+

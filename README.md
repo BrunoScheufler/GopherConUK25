@@ -92,7 +92,7 @@ The following branches are available:
 - [`exercise1-hint`](https://github.com/BrunoScheufler/GopherConUK25/tree/exercise1-hint): Hints without the solution code
 - [`exercise1-complete`](https://github.com/BrunoScheufler/GopherConUK25/tree/exercise1-complete): The full solution
 - [`exercise2-start`](https://github.com/BrunoScheufler/GopherConUK25/tree/exercise2-start): Start here for exercise 2
-- [`exercise2-hint`](`https://github.com/BrunoScheufler/GopherConUK25/tree/exercise2-hint`): Hints without the full solution
+- [`exercise2-hint`](https://github.com/BrunoScheufler/GopherConUK25/tree/exercise2-hint): Hints without the full solution
 - [`exercise2-complete`](https://github.com/BrunoScheufler/GopherConUK25/tree/exercise2-complete): The full solution
 
 ### Task 1: Migrate data from legacy data store

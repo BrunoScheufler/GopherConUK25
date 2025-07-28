@@ -13,7 +13,7 @@ import (
 )
 
 func (p *DataProxy) init() error {
-	dbName := constants.NoteShard1
+	dbName := constants.LegacyNoteStore
 
 	noteStore, err := store.NewNoteStore(store.DefaultStoreOptions(dbName))
 	if err != nil {
