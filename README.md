@@ -80,6 +80,12 @@ Interesting routes to check include
 - `GET /accounts/{accountID}/notes`: List all notes for a specific account`
 - `GET /accounts/{accountID}/notes/{noteID}`: Get a specific note for an account
 
+### Migration completion
+
+While migrations in real-world systems will take hours or days to complete, we can speed this process up. To reduce some complexity, load generation will eventually have invoked updates on all notes. This is a useful property, as it means we can migrate data during the `updateNote()` step.
+
+You do _not_ have to write a one-off migration that moves all leftover data over to the new cluster, as you would in real life. If you wanted to test this, you could manually create some notes and write a migration for those, or tweak the load generation logic to abandon some notes after creation (as real accounts would).
+
 ## Hands-on Exercise
 
 ### A note on branching
