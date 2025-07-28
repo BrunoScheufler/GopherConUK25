@@ -55,7 +55,7 @@ type Note struct {
 }
 ```
 
-> [!INFO]
+> [!NOTE]
 > As you can see in the struct above, note content is stored in a single field. In a real production application, we might want to break down content even further to avoid migrating excessive amounts of data. For the sake of simplicity, I have omitted this step.
 
 ### Running the application with load generation
@@ -81,6 +81,19 @@ Interesting routes to check include
 - `GET /accounts/{accountID}/notes/{noteID}`: Get a specific note for an account
 
 ## Hands-on Exercise
+
+### A note on branching
+
+For this exercise, I've prepared multiple branches with varying states of completion. This means you can choose your own adventure based on the time you want to put into this exercise. You can always check out the `hint` branches to unblock yourself or take a look at the full solution on the `complete` branches.
+
+The following branches are available:
+
+- [`exercise1-start`](https://github.com/BrunoScheufler/GopherConUK25/tree/exercise1-start): Start here for exercise 1
+- [`exercise1-hint`](https://github.com/BrunoScheufler/GopherConUK25/tree/exercise1-hint): Hints without the solution code
+- [`exercise1-complete`](https://github.com/BrunoScheufler/GopherConUK25/tree/exercise1-complete): The full solution
+- [`exercise2-start`](https://github.com/BrunoScheufler/GopherConUK25/tree/exercise2-start): Start here for exercise 2
+- [`exercise2-hint`](`https://github.com/BrunoScheufler/GopherConUK25/tree/exercise2-hint`): Hints without the full solution
+- [`exercise2-complete`](https://github.com/BrunoScheufler/GopherConUK25/tree/exercise2-complete): The full solution
 
 ### Task 1: Migrate data from legacy data store
 
