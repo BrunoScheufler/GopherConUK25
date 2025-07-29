@@ -217,6 +217,9 @@ func (s *sqliteNoteStore) UpdateNote(ctx context.Context, accountID uuid.UUID, n
 			accountID.String(),
 			note.UpdatedAt.UnixMilli(),
 		)
+		if execErr != nil {
+			s.logger.Error("received exec error after update", "error", execErr)
+		}
 		return execErr
 	})
 	if err != nil {
@@ -300,7 +303,12 @@ func DefaultStoreOptions(name string, logger *slog.Logger) StoreOptions {
 }
 
 func NewAccountStore(opts StoreOptions) (AccountStore, error) {
-	db, err := createSQLiteDatabaseWithPath(opts.Name, opts.BasePath, opts.Config)
+	logger := opts.Logger
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
+	}
+
+	db, err := createSQLiteDatabaseWithPath(opts.Name, opts.BasePath, opts.Config, logger)
 	if err != nil {
 		return nil, fmt.Errorf("could not create sqlite db: %w", err)
 	}
@@ -314,7 +322,12 @@ func NewAccountStore(opts StoreOptions) (AccountStore, error) {
 }
 
 func NewNoteStore(opts StoreOptions) (NoteStore, error) {
-	db, err := createSQLiteDatabaseWithPath(opts.Name, opts.BasePath, opts.Config)
+	logger := opts.Logger
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
+	}
+
+	db, err := createSQLiteDatabaseWithPath(opts.Name, opts.BasePath, opts.Config, logger)
 	if err != nil {
 		return nil, fmt.Errorf("could not create sqlite db: %w", err)
 	}
@@ -322,11 +335,6 @@ func NewNoteStore(opts StoreOptions) (NoteStore, error) {
 	if err := createNotesTable(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("could not create notes table: %w", err)
-	}
-
-	logger := opts.Logger
-	if logger == nil {
-		logger = slog.New(slog.DiscardHandler)
 	}
 
 	return &sqliteNoteStore{
@@ -360,7 +368,7 @@ func createAccountsTable(db *sql.DB) error {
 	return err
 }
 
-func createSQLiteDatabaseWithPath(name, basePath string, config DatabaseConfig) (*sql.DB, error) {
+func createSQLiteDatabaseWithPath(name, basePath string, config DatabaseConfig, logger *slog.Logger) (*sql.DB, error) {
 	var dir string
 	if basePath != "" {
 		dir = filepath.Join(basePath, ".data")
@@ -395,6 +403,8 @@ func createSQLiteDatabaseWithPath(name, basePath string, config DatabaseConfig) 
 	db.SetConnMaxLifetime(config.ConnMaxLifetime)
 
 	if config.EnableWAL {
+		logger.Debug("enabling WAL on database", "dsn", dsn)
+
 		// https://www.sqlite.org/pragma.html#pragma_journal_mode
 		_, err = db.Exec("PRAGMA journal_mode = WAL;")
 		if err != nil {

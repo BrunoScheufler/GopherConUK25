@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -46,6 +47,9 @@ func setupTestStores(t *testing.T, dbName string) (AccountStore, NoteStore, stri
 		Name:     dbName,
 		BasePath: tmpDir,
 		Config:   config,
+		Logger: slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+			Level: slog.LevelDebug,
+		})),
 	}
 
 	accountStore, err := NewAccountStore(opts)
@@ -685,6 +689,9 @@ func TestUpdateConsistency(t *testing.T) {
 		t.Fatalf("Failed to create original note: %v", err)
 	}
 
+	// Wait at least 1ms so that the update timestamp changes. Otherwise, the updateNote call will be ignored.
+	<-time.After(time.Millisecond)
+
 	// Update the note with first connection
 	updatedNote := originalNote
 	updatedNote.Content = "Updated Content"
@@ -841,7 +848,7 @@ func TestSQLiteReadWrites(t *testing.T) {
 			MaxIdleConns:    1,
 			ConnMaxLifetime: time.Second,
 			EnableWAL:       wal,
-		})
+		}, slog.New(slog.DiscardHandler))
 		require.NoError(t, err)
 		return db
 	}
@@ -875,7 +882,7 @@ func TestSQLiteContentionWrites(t *testing.T) {
 			MaxIdleConns:    1,
 			ConnMaxLifetime: time.Second,
 			EnableWAL:       wal,
-		})
+		}, slog.New(slog.DiscardHandler))
 		require.NoError(t, err)
 		return db
 	}
@@ -952,7 +959,7 @@ func TestSQLiteContentionReads(t *testing.T) {
 			MaxIdleConns:    1,
 			ConnMaxLifetime: time.Second,
 			EnableWAL:       wal,
-		})
+		}, slog.New(slog.DiscardHandler))
 		require.NoError(t, err)
 		return db
 	}
@@ -1023,4 +1030,3 @@ func TestSQLiteContentionReads(t *testing.T) {
 	// Verify some reads succeeded despite contention
 	require.Greater(t, successfulReads, 0, "Expected at least some reads to succeed")
 }
-
