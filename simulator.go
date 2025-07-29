@@ -145,7 +145,7 @@ func (s *Simulator) runAccountLoop(account store.Account) {
 		accountID: account.ID,
 		apiClient: s.apiClient,
 		telemetry: s.telemetry,
-		logger:    s.logger,
+		logger:    s.logger.With("account_id", account.ID),
 		notes:     make(map[uuid.UUID]string),
 		ctx:       s.ctx,
 	}
@@ -196,12 +196,17 @@ func (al *AccountLoop) createInitialNotes(count int) error {
 }
 
 func (al *AccountLoop) run() {
-	operations := []func() error{
-		al.createNote,
-		al.updateNote,
-		al.readNote,
-		al.deleteNote,
-		al.listNotes,
+	operations := map[string]func() error{
+		"create": al.createNote,
+		"update": al.updateNote,
+		"read":   al.readNote,
+		"delete": al.deleteNote,
+		"list":   al.listNotes,
+	}
+
+	availableOperations := make([]string, 0, len(operations))
+	for opName := range operations {
+		availableOperations = append(availableOperations, opName)
 	}
 
 	for {
@@ -209,11 +214,15 @@ func (al *AccountLoop) run() {
 		case <-al.ctx.Done():
 			return
 		case <-al.ticker.C:
-			operation := operations[rand.Intn(len(operations))]
+			op := availableOperations[rand.Intn(len(availableOperations))]
+			operation := operations[op]
 			if err := operation(); err != nil {
 				// Only log errors, not every operation
-				al.logger.Error("Load generator operation failed", "error", err)
+				al.logger.Error("Load generator operation failed", "op", op, "error", err)
+				continue
 			}
+
+			al.logger.Debug("successfully performed operation", "op", op)
 		}
 	}
 }
