@@ -71,6 +71,13 @@ func (p *DataProxy) CreateNote(ctx context.Context, accountID uuid.UUID, note st
 	}
 	// Track metrics, ignoring errors to avoid disrupting main operation
 	_ = p.statsCollector.TrackDataStoreAccess("CreateNote", time.Since(start), p.shardID, status)
+
+	// Report new total count
+	totalCount, err := p.noteStore.GetTotalNotes(ctx)
+	if err != nil {
+		return fmt.Errorf("could not retrieve total note count: %w", err)
+	}
+	p.statsCollector.TrackNoteCount(p.shardID, totalCount)
 	return err
 }
 
@@ -103,6 +110,14 @@ func (p *DataProxy) DeleteNote(ctx context.Context, accountID uuid.UUID, note st
 	}
 	// Track metrics, ignoring errors to avoid disrupting main operation
 	_ = p.statsCollector.TrackDataStoreAccess("DeleteNote", time.Since(start), p.shardID, status)
+
+	// Report new total count
+	totalCount, err := p.noteStore.GetTotalNotes(ctx)
+	if err != nil {
+		return fmt.Errorf("could not retrieve total note count: %w", err)
+	}
+	p.statsCollector.TrackNoteCount(p.shardID, totalCount)
+
 	return err
 }
 
@@ -117,7 +132,15 @@ func (p *DataProxy) CountNotes(ctx context.Context, accountID uuid.UUID) (int, e
 func (p *DataProxy) GetTotalNotes(ctx context.Context) (int, error) {
 	p.lockWithContentionTracking("GetTotalNotes")
 	defer p.mu.Unlock()
-	return p.noteStore.GetTotalNotes(ctx)
+
+	totalCount, err := p.noteStore.GetTotalNotes(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("could not retrieve total count: %w", err)
+	}
+
+	p.statsCollector.TrackNoteCount(p.shardID, totalCount)
+
+	return totalCount, nil
 }
 
 // HealthCheck implements NoteStore interface with locking

@@ -237,7 +237,7 @@ func NewBubbleTeaModel(appConfig *AppConfig, options CLIOptions) *Model {
 	// Initialize paginator
 	p := paginator.New()
 	p.Type = paginator.Dots
-	p.SetTotalPages(3)
+	p.SetTotalPages(2)
 
 	return &Model{
 		appConfig:        appConfig,
@@ -307,26 +307,26 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case key.Matches(msg, keys.ScrollUp):
-			// Only works on logs page (page 3)
-			if m.paginator.Page == 2 {
+			// Only works on logs page (page 2)
+			if m.paginator.Page == 1 {
 				m.logsViewport.LineUp(1)
 			}
 			return m, nil
 		case key.Matches(msg, keys.ScrollDown):
-			// Only works on logs page (page 3)
-			if m.paginator.Page == 2 {
+			// Only works on logs page (page 2)
+			if m.paginator.Page == 1 {
 				m.logsViewport.LineDown(1)
 			}
 			return m, nil
 		case key.Matches(msg, keys.PageUp):
-			// Only works on logs page (page 3)
-			if m.paginator.Page == 2 {
+			// Only works on logs page (page 2)
+			if m.paginator.Page == 1 {
 				m.logsViewport.HalfViewUp()
 			}
 			return m, nil
 		case key.Matches(msg, keys.PageDown):
-			// Only works on logs page (page 3)
-			if m.paginator.Page == 2 {
+			// Only works on logs page (page 2)
+			if m.paginator.Page == 1 {
 				m.logsViewport.HalfViewDown()
 			}
 			return m, nil
@@ -424,14 +424,11 @@ func (m *Model) renderLayout() string {
 	var content string
 	switch m.paginator.Page {
 	case 0:
-		// Page 1: API requests & deployments
+		// Page 1: API requests, data store access & deployments
 		content = m.renderPage1(panelStyle, titleStyle, availableWidth, availableHeight)
 	case 1:
-		// Page 2: Data access
-		content = m.renderPage2(panelStyle, titleStyle, availableWidth, availableHeight)
-	case 2:
-		// Page 3: Logs
-		content = m.renderPage3(logsPanelStyle, titleStyle, availableWidth, availableHeight)
+		// Page 2: Logs
+		content = m.renderPage2(logsPanelStyle, titleStyle, availableWidth, availableHeight)
 	}
 
 	// Add paginator
@@ -547,49 +544,50 @@ func (m *Model) renderGridLayout(panelStyle, logsPanelStyle, titleStyle, helpSty
 	return lipgloss.JoinVertical(lipgloss.Left, content, help)
 }
 
-// renderPage1 renders API requests and deployments
+// renderPage1 renders API requests, data store access and deployments
 func (m *Model) renderPage1(panelStyle lipgloss.Style, titleStyle lipgloss.Style, width, height int) string {
-	// Split height between API requests and deployments
-	apiHeight := height / 2
-	deploymentHeight := height - apiHeight - 2
+	// Split height between three sections
+	topRowHeight := (height * 2) / 5  // 40% for API and data store
+	deploymentHeight := height - topRowHeight - 2
+	
+	// Split width for top row
+	halfWidth := (width - 2) / 2
 
-	// Update API table size
+	// Update table sizes
+	tableHeight := topRowHeight - 6
 	m.apiTable = table.New(table.WithColumns(m.apiTable.Columns()),
 		table.WithRows(m.apiTable.Rows()),
-		table.WithWidth(width-4),
-		table.WithHeight(apiHeight-6))
+		table.WithWidth(halfWidth-4),
+		table.WithHeight(tableHeight))
+	
+	m.dataStoreTable = table.New(table.WithColumns(m.dataStoreTable.Columns()),
+		table.WithRows(m.dataStoreTable.Rows()),
+		table.WithWidth(halfWidth-4),
+		table.WithHeight(tableHeight))
 
 	// Render API requests panel
-	apiPanel := panelStyle.Width(width).Height(apiHeight).Render(
+	apiPanel := panelStyle.Width(halfWidth).Height(topRowHeight).Render(
 		titleStyle.Render("API Requests") + "\n" + m.apiTable.View(),
 	)
+
+	// Render data store panel
+	dataStorePanel := panelStyle.Width(halfWidth).Height(topRowHeight).Render(
+		titleStyle.Render("Data Store Access") + "\n" + m.dataStoreTable.View(),
+	)
+
+	// Join API and data store panels horizontally
+	topRow := lipgloss.JoinHorizontal(lipgloss.Top, apiPanel, dataStorePanel)
 
 	// Render deployment panel
 	deploymentPanel := panelStyle.Width(width).Height(deploymentHeight).Render(
 		titleStyle.Render("Deployments [Press 'd' to deploy]") + "\n" + m.renderDeploymentContent(),
 	)
 
-	return lipgloss.JoinVertical(lipgloss.Left, apiPanel, deploymentPanel)
+	return lipgloss.JoinVertical(lipgloss.Left, topRow, deploymentPanel)
 }
 
-// renderPage2 renders data store access
-func (m *Model) renderPage2(panelStyle lipgloss.Style, titleStyle lipgloss.Style, width, height int) string {
-	// Use full height for data store table
-	m.dataStoreTable = table.New(table.WithColumns(m.dataStoreTable.Columns()),
-		table.WithRows(m.dataStoreTable.Rows()),
-		table.WithWidth(width-4),
-		table.WithHeight(height-6))
-
-	// Render data store panel
-	dataStorePanel := panelStyle.Width(width).Height(height).Render(
-		titleStyle.Render("Data Store Access") + "\n" + m.dataStoreTable.View(),
-	)
-
-	return dataStorePanel
-}
-
-// renderPage3 renders logs
-func (m *Model) renderPage3(logsPanelStyle lipgloss.Style, titleStyle lipgloss.Style, width, height int) string {
+// renderPage2 renders logs
+func (m *Model) renderPage2(logsPanelStyle lipgloss.Style, titleStyle lipgloss.Style, width, height int) string {
 	// Update viewport dimensions
 	m.logsViewport.Width = width - 4
 	m.logsViewport.Height = height - 2
@@ -1099,9 +1097,8 @@ func (m *Model) adjustTableSizes() {
 	availableWidth := m.width - 4
 
 	// With pagination, we size tables based on full available space per page
-	// Page 1: API table gets half height (sharing with deployments)
-	// Page 2: Data store table gets full height
-	// Page 3: Logs viewport gets full height
+	// Page 1: API and data store tables share top row, deployments below
+	// Page 2: Logs viewport gets full height
 	
 	apiTableWidth := availableWidth - 4
 	apiTableHeight := (availableHeight / 2) - 6

@@ -35,6 +35,7 @@ type StatsCollector interface {
 	TrackAPIRequest(method string, path string, duration time.Duration, responseStatusCode int) error
 	TrackProxyAccess(operation string, duration time.Duration, proxyID int, status ProxyAccessStatus) error
 	TrackDataStoreAccess(operation string, duration time.Duration, storeID string, status DataStoreAccessStatus) error
+	TrackNoteCount(shardID string, count int) error
 	Export() Stats
 	Import(stats Stats)
 	Stop() // Gracefully shut down the stats collector
@@ -78,6 +79,7 @@ type Stats struct {
 	APIRequests     map[string]*APIStats       `json:"apiRequests"`
 	ProxyAccess     map[string]*ProxyStats     `json:"proxyAccess"`
 	DataStoreAccess map[string]*DataStoreStats `json:"dataStoreAccess"`
+	NoteCount       map[string]int             `json:"noteCount"`
 }
 
 // inMemoryStatsCollector implements StatsCollector interface
@@ -121,6 +123,7 @@ func NewStatsCollector(options ...StatsCollectorOption) StatsCollector {
 			APIRequests:     make(map[string]*APIStats),
 			ProxyAccess:     make(map[string]*ProxyStats),
 			DataStoreAccess: make(map[string]*DataStoreStats),
+			NoteCount:       make(map[string]int),
 		},
 		ctx:    ctx,
 		cancel: cancel,
@@ -242,6 +245,11 @@ func (sc *inMemoryStatsCollector) TrackDataStoreAccess(operation string, duratio
 	)
 }
 
+func (sc *inMemoryStatsCollector) TrackNoteCount(shardID string, count int) error {
+	sc.stats.NoteCount[shardID] = count
+	return nil
+}
+
 // Export returns a copy of current stats excluding internal fields
 func (sc *inMemoryStatsCollector) Export() Stats {
 	sc.mutex.RLock()
@@ -252,6 +260,7 @@ func (sc *inMemoryStatsCollector) Export() Stats {
 		APIRequests:     make(map[string]*APIStats),
 		ProxyAccess:     make(map[string]*ProxyStats),
 		DataStoreAccess: make(map[string]*DataStoreStats),
+		NoteCount:       make(map[string]int),
 	}
 
 	for k, v := range sc.stats.APIRequests {
@@ -300,6 +309,10 @@ func (sc *inMemoryStatsCollector) Export() Stats {
 			Status:    v.Status,
 			Metrics:   exportedMetrics,
 		}
+	}
+
+	for k, v := range sc.stats.NoteCount {
+		exported.NoteCount[k] = v
 	}
 
 	return exported
@@ -351,6 +364,12 @@ func (sc *inMemoryStatsCollector) Import(stats Stats) {
 			incoming.Metrics.currentDurations = nil
 			sc.stats.DataStoreAccess[key] = incoming
 		}
+	}
+
+	// Merge note count
+	clear(stats.NoteCount)
+	for key, incoming := range stats.NoteCount {
+		sc.stats.NoteCount[key] = incoming
 	}
 }
 
@@ -428,4 +447,3 @@ func calculateP95(durations []int) int {
 func (sc *inMemoryStatsCollector) Stop() {
 	sc.cancel()
 }
-
