@@ -189,6 +189,12 @@ func (s *sqliteNoteStore) GetNote(ctx context.Context, accountID, noteID uuid.UU
 func (s *sqliteNoteStore) CreateNote(ctx context.Context, accountID uuid.UUID, note Note) error {
 	query := `INSERT INTO notes (id, creator, created_at, updated_at, content) VALUES (?, ?, ?, ?, ?)`
 
+	s.logger.Debug("creating note",
+		"id", note.ID.String(),
+		"created_at", note.CreatedAt.Format(time.StampMilli),
+		"creator", note.Creator.String(),
+	)
+
 	err := util.Retry(ctx, defaultRetryConfig, func() error {
 		_, execErr := s.db.ExecContext(ctx, query, note.ID.String(), accountID.String(), note.CreatedAt.UnixMilli(), note.UpdatedAt.UnixMilli(), note.Content)
 		return execErr

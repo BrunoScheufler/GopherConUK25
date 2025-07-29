@@ -546,9 +546,10 @@ func (m *Model) renderGridLayout(panelStyle, logsPanelStyle, titleStyle, helpSty
 
 // renderPage1 renders API requests, data store access and deployments
 func (m *Model) renderPage1(panelStyle lipgloss.Style, titleStyle lipgloss.Style, width, height int) string {
-	// Split height between three sections
-	topRowHeight := (height * 2) / 5  // 40% for API and data store
-	deploymentHeight := height - topRowHeight - 2
+	// Split height between four sections
+	topRowHeight := (height * 3) / 10  // 30% for API and data store
+	shardHeight := (height * 2) / 10   // 20% for shard counts
+	deploymentHeight := height - topRowHeight - shardHeight - 4
 	
 	// Split width for top row
 	halfWidth := (width - 2) / 2
@@ -578,12 +579,17 @@ func (m *Model) renderPage1(panelStyle lipgloss.Style, titleStyle lipgloss.Style
 	// Join API and data store panels horizontally
 	topRow := lipgloss.JoinHorizontal(lipgloss.Top, apiPanel, dataStorePanel)
 
+	// Render shard counts panel
+	shardPanel := panelStyle.Width(width).Height(shardHeight).Render(
+		titleStyle.Render("Note Counts by Shard") + "\n" + m.renderShardCounts(),
+	)
+
 	// Render deployment panel
 	deploymentPanel := panelStyle.Width(width).Height(deploymentHeight).Render(
 		titleStyle.Render("Deployments [Press 'd' to deploy]") + "\n" + m.renderDeploymentContent(),
 	)
 
-	return lipgloss.JoinVertical(lipgloss.Left, topRow, deploymentPanel)
+	return lipgloss.JoinVertical(lipgloss.Left, topRow, shardPanel, deploymentPanel)
 }
 
 // renderPage2 renders logs
@@ -1063,6 +1069,56 @@ func (m *Model) getProxyStatsForDeployment(deploymentID int, stats telemetry.Sta
 			stat.Metrics.DurationP95))
 	}
 
+	return content.String()
+}
+
+func (m *Model) renderShardCounts() string {
+	if m.appConfig.Telemetry == nil {
+		return "No telemetry available"
+	}
+
+	stats := m.appConfig.Telemetry.GetStatsCollector().Export()
+	
+	if len(stats.NoteCount) == 0 {
+		subtleStyle := lipgloss.NewStyle().Foreground(m.theme.Subtle)
+		return subtleStyle.Render("No shard data available")
+	}
+
+	// Sort shard IDs for consistent display
+	var shardIDs []string
+	for shardID := range stats.NoteCount {
+		shardIDs = append(shardIDs, shardID)
+	}
+	
+	// Sort alphabetically
+	for i := 0; i < len(shardIDs); i++ {
+		for j := i + 1; j < len(shardIDs); j++ {
+			if shardIDs[i] > shardIDs[j] {
+				shardIDs[i], shardIDs[j] = shardIDs[j], shardIDs[i]
+			}
+		}
+	}
+
+	// Build the display string
+	var content strings.Builder
+	shardStyle := lipgloss.NewStyle().Foreground(m.theme.Primary)
+	countStyle := lipgloss.NewStyle().Foreground(m.theme.Success).Bold(true)
+	
+	// Display shards in a horizontal layout if there's enough space
+	var shardStrings []string
+	for _, shardID := range shardIDs {
+		count := stats.NoteCount[shardID]
+		shardStr := fmt.Sprintf("%s: %s", 
+			shardStyle.Render(shardID), 
+			countStyle.Render(fmt.Sprintf("%d", count)))
+		shardStrings = append(shardStrings, shardStr)
+	}
+	
+	// Join with appropriate spacing
+	if len(shardStrings) > 0 {
+		content.WriteString(strings.Join(shardStrings, "    "))
+	}
+	
 	return content.String()
 }
 

@@ -246,6 +246,9 @@ func (sc *inMemoryStatsCollector) TrackDataStoreAccess(operation string, duratio
 }
 
 func (sc *inMemoryStatsCollector) TrackNoteCount(shardID string, count int) error {
+	sc.mutex.Lock()
+	defer sc.mutex.Unlock()
+
 	sc.stats.NoteCount[shardID] = count
 	return nil
 }
@@ -367,7 +370,7 @@ func (sc *inMemoryStatsCollector) Import(stats Stats) {
 	}
 
 	// Merge note count
-	clear(stats.NoteCount)
+	clear(sc.stats.NoteCount)
 	for key, incoming := range stats.NoteCount {
 		sc.stats.NoteCount[key] = incoming
 	}
