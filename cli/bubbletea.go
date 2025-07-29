@@ -11,6 +11,7 @@ import (
 	"github.com/brunoscheufler/gopherconuk25/telemetry"
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/paginator"
 	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -45,6 +46,9 @@ type Model struct {
 
 	// Progress bar for deployments
 	progressBar progress.Model
+
+	// Paginator for switching between views
+	paginator paginator.Model
 
 	// Theme colors
 	theme BubbleTeaTheme
@@ -105,16 +109,18 @@ type keyMap struct {
 	ScrollDown key.Binding
 	PageUp     key.Binding
 	PageDown   key.Binding
+	NextPage   key.Binding
+	PrevPage   key.Binding
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Deploy, k.ScrollUp, k.ScrollDown, k.Quit}
+	return []key.Binding{k.PrevPage, k.NextPage, k.Deploy, k.Quit}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Deploy, k.ScrollUp, k.ScrollDown},
-		{k.PageUp, k.PageDown, k.Quit},
+		{k.PrevPage, k.NextPage, k.Deploy},
+		{k.ScrollUp, k.ScrollDown, k.Quit},
 	}
 }
 
@@ -138,6 +144,14 @@ var keys = keyMap{
 	PageDown: key.NewBinding(
 		key.WithKeys("pgdown", "f"),
 		key.WithHelp("pgdn/f", "page down"),
+	),
+	NextPage: key.NewBinding(
+		key.WithKeys("l", "right"),
+		key.WithHelp("l/→", "next page"),
+	),
+	PrevPage: key.NewBinding(
+		key.WithKeys("h", "left"),
+		key.WithHelp("h/←", "prev page"),
 	),
 	Quit: key.NewBinding(
 		key.WithKeys("q", "ctrl+c", "esc"),
@@ -220,6 +234,11 @@ func NewBubbleTeaModel(appConfig *AppConfig, options CLIOptions) *Model {
 		progress.WithoutPercentage(),
 	)
 
+	// Initialize paginator
+	p := paginator.New()
+	p.Type = paginator.Dots
+	p.SetTotalPages(3)
+
 	return &Model{
 		appConfig:        appConfig,
 		options:          options,
@@ -229,6 +248,7 @@ func NewBubbleTeaModel(appConfig *AppConfig, options CLIOptions) *Model {
 		dataStoreTable:   dataStoreTable,
 		help:             helpModel,
 		progressBar:      progressModel,
+		paginator:        p,
 		theme:            theme,
 		logsViewport:     viewport.New(0, 0), // Will be sized properly later
 		apiColumns:       apiColumns,
@@ -265,21 +285,50 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cancel()
 			return m, tea.Quit
 		case key.Matches(msg, keys.Deploy):
-			if m.appConfig.DeploymentController != nil {
+			// Only allow deploy on page 1 (API & Deployments page)
+			if m.paginator.Page == 0 && m.appConfig.DeploymentController != nil {
 				go m.appConfig.DeploymentController.Deploy()
 			}
 			return m, nil
+		case key.Matches(msg, keys.NextPage):
+			// Manual wrap-around: if at last page, go to first
+			if m.paginator.Page >= m.paginator.TotalPages-1 {
+				m.paginator.Page = 0
+			} else {
+				m.paginator.NextPage()
+			}
+			return m, nil
+		case key.Matches(msg, keys.PrevPage):
+			// Manual wrap-around: if at first page, go to last
+			if m.paginator.Page <= 0 {
+				m.paginator.Page = m.paginator.TotalPages - 1
+			} else {
+				m.paginator.PrevPage()
+			}
+			return m, nil
 		case key.Matches(msg, keys.ScrollUp):
-			m.logsViewport.LineUp(1)
+			// Only works on logs page (page 3)
+			if m.paginator.Page == 2 {
+				m.logsViewport.LineUp(1)
+			}
 			return m, nil
 		case key.Matches(msg, keys.ScrollDown):
-			m.logsViewport.LineDown(1)
+			// Only works on logs page (page 3)
+			if m.paginator.Page == 2 {
+				m.logsViewport.LineDown(1)
+			}
 			return m, nil
 		case key.Matches(msg, keys.PageUp):
-			m.logsViewport.HalfViewUp()
+			// Only works on logs page (page 3)
+			if m.paginator.Page == 2 {
+				m.logsViewport.HalfViewUp()
+			}
 			return m, nil
 		case key.Matches(msg, keys.PageDown):
-			m.logsViewport.HalfViewDown()
+			// Only works on logs page (page 3)
+			if m.paginator.Page == 2 {
+				m.logsViewport.HalfViewDown()
+			}
 			return m, nil
 		}
 
@@ -367,15 +416,34 @@ func (m *Model) renderLayout() string {
 
 	// Calculate available space
 	helpHeight := 3
-	availableHeight := m.height - helpHeight - 2 // Account for margins
-	availableWidth := m.width - 4                // Account for margins
+	paginatorHeight := 2
+	availableHeight := m.height - helpHeight - paginatorHeight - 2 // Account for margins
+	availableWidth := m.width - 4                                   // Account for margins
 
-	// Determine layout based on screen size
-	if availableWidth < 120 || availableHeight < 30 {
-		return m.renderVerticalLayout(panelStyle, logsPanelStyle, titleStyle, helpStyle, availableWidth, availableHeight)
+	// Render current page content
+	var content string
+	switch m.paginator.Page {
+	case 0:
+		// Page 1: API requests & deployments
+		content = m.renderPage1(panelStyle, titleStyle, availableWidth, availableHeight)
+	case 1:
+		// Page 2: Data access
+		content = m.renderPage2(panelStyle, titleStyle, availableWidth, availableHeight)
+	case 2:
+		// Page 3: Logs
+		content = m.renderPage3(logsPanelStyle, titleStyle, availableWidth, availableHeight)
 	}
 
-	return m.renderGridLayout(panelStyle, logsPanelStyle, titleStyle, helpStyle, availableWidth, availableHeight)
+	// Add paginator
+	paginatorStyle := lipgloss.NewStyle().
+		Foreground(m.theme.Accent).
+		Margin(1, 0)
+	paginator := paginatorStyle.Render(m.paginator.View())
+
+	// Add help at bottom
+	help := helpStyle.Render(m.help.View(keys))
+
+	return lipgloss.JoinVertical(lipgloss.Center, content, paginator, help)
 }
 
 // renderVerticalLayout renders all panels vertically for small screens
@@ -477,6 +545,61 @@ func (m *Model) renderGridLayout(panelStyle, logsPanelStyle, titleStyle, helpSty
 	help := helpStyle.Render(m.help.View(keys))
 
 	return lipgloss.JoinVertical(lipgloss.Left, content, help)
+}
+
+// renderPage1 renders API requests and deployments
+func (m *Model) renderPage1(panelStyle lipgloss.Style, titleStyle lipgloss.Style, width, height int) string {
+	// Split height between API requests and deployments
+	apiHeight := height / 2
+	deploymentHeight := height - apiHeight - 2
+
+	// Update API table size
+	m.apiTable = table.New(table.WithColumns(m.apiTable.Columns()),
+		table.WithRows(m.apiTable.Rows()),
+		table.WithWidth(width-4),
+		table.WithHeight(apiHeight-6))
+
+	// Render API requests panel
+	apiPanel := panelStyle.Width(width).Height(apiHeight).Render(
+		titleStyle.Render("API Requests") + "\n" + m.apiTable.View(),
+	)
+
+	// Render deployment panel
+	deploymentPanel := panelStyle.Width(width).Height(deploymentHeight).Render(
+		titleStyle.Render("Deployments [Press 'd' to deploy]") + "\n" + m.renderDeploymentContent(),
+	)
+
+	return lipgloss.JoinVertical(lipgloss.Left, apiPanel, deploymentPanel)
+}
+
+// renderPage2 renders data store access
+func (m *Model) renderPage2(panelStyle lipgloss.Style, titleStyle lipgloss.Style, width, height int) string {
+	// Use full height for data store table
+	m.dataStoreTable = table.New(table.WithColumns(m.dataStoreTable.Columns()),
+		table.WithRows(m.dataStoreTable.Rows()),
+		table.WithWidth(width-4),
+		table.WithHeight(height-6))
+
+	// Render data store panel
+	dataStorePanel := panelStyle.Width(width).Height(height).Render(
+		titleStyle.Render("Data Store Access") + "\n" + m.dataStoreTable.View(),
+	)
+
+	return dataStorePanel
+}
+
+// renderPage3 renders logs
+func (m *Model) renderPage3(logsPanelStyle lipgloss.Style, titleStyle lipgloss.Style, width, height int) string {
+	// Update viewport dimensions
+	m.logsViewport.Width = width - 4
+	m.logsViewport.Height = height - 2
+
+	// Render logs panel
+	logsPanel := logsPanelStyle.Width(width).Height(height).Render(
+		titleStyle.Render("Logs") + "\n" + m.renderLogsContent(height-2),
+	)
+
+	return logsPanel
 }
 
 // Message types for updates
@@ -971,31 +1094,19 @@ func (m *Model) adjustTableSizes() {
 
 	// Calculate available space
 	helpHeight := 3
-	availableHeight := m.height - helpHeight - 2
+	paginatorHeight := 2
+	availableHeight := m.height - helpHeight - paginatorHeight - 2
 	availableWidth := m.width - 4
 
-	var apiTableWidth, apiTableHeight, dataStoreTableWidth, dataStoreTableHeight int
-
-	// Determine layout and set appropriate sizes
-	if availableWidth < 120 || availableHeight < 30 {
-		// Vertical layout for small screens - 3 panels (API, DataStore, Deployment, Logs)
-		panelHeight := (availableHeight - 6) / 3
-		panelWidth := availableWidth - 4
-
-		apiTableWidth = panelWidth - 4
-		apiTableHeight = panelHeight - 6
-		dataStoreTableWidth = panelWidth - 4
-		dataStoreTableHeight = panelHeight - 6
-	} else {
-		// Grid layout for large screens - top row has API & DataStore, middle has Deployment, bottom has Logs
-		panelWidth := (availableWidth - 6) / 2
-		topPanelHeight := (availableHeight - 16) / 3
-
-		apiTableWidth = panelWidth - 4
-		apiTableHeight = topPanelHeight - 6
-		dataStoreTableWidth = panelWidth - 4
-		dataStoreTableHeight = topPanelHeight - 6
-	}
+	// With pagination, we size tables based on full available space per page
+	// Page 1: API table gets half height (sharing with deployments)
+	// Page 2: Data store table gets full height
+	// Page 3: Logs viewport gets full height
+	
+	apiTableWidth := availableWidth - 4
+	apiTableHeight := (availableHeight / 2) - 6
+	dataStoreTableWidth := availableWidth - 4
+	dataStoreTableHeight := availableHeight - 6
 
 	// Ensure minimum sizes
 	if apiTableWidth < 30 {
@@ -1012,24 +1123,8 @@ func (m *Model) adjustTableSizes() {
 	}
 
 	// Calculate viewport dimensions for logs panel
-	var viewportWidth, viewportHeight int
-	if availableWidth < 120 || availableHeight < 30 {
-		// Vertical layout - logs panel gets remaining space
-		// Increased panel height to accommodate 3x table rows
-		minPanelHeight := 18
-		panelHeight := max(minPanelHeight, (availableHeight-20)/4)
-		logsPanelHeight := availableHeight - (3 * panelHeight) - 8
-		viewportWidth = availableWidth - 6
-		viewportHeight = max(5, logsPanelHeight-2) // Account for title and padding
-	} else {
-		// Grid layout - logs panel at bottom with full width
-		// Increased heights to accommodate 3x table rows and proxy stats
-		topPanelHeight := max(18, (availableHeight-20)/4)
-		middlePanelHeight := max(12, (availableHeight-20)/6)
-		logsPanelHeight := availableHeight - topPanelHeight - middlePanelHeight - 12
-		viewportWidth = availableWidth - 4
-		viewportHeight = max(5, logsPanelHeight-2) // Account for title and padding
-	}
+	viewportWidth := availableWidth - 4
+	viewportHeight := max(5, availableHeight-2)
 
 	// Adjust column widths based on available width
 	m.adjustColumnWidths(apiTableWidth, dataStoreTableWidth)
