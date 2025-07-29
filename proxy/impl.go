@@ -24,7 +24,7 @@ func (p *DataProxy) init() error {
 }
 
 // ListNotes implements NoteStore interface with locking
-func (p *DataProxy) ListNotes(ctx context.Context, accountID uuid.UUID) ([]store.Note, error) {
+func (p *DataProxy) ListNotes(ctx context.Context, accountID uuid.UUID) ([]uuid.UUID, error) {
 	p.lockWithContentionTracking("ListNotes")
 	defer p.mu.Unlock()
 

@@ -85,7 +85,7 @@ func (p *ProxyClient) makeJSONRPCRequest(ctx context.Context, method string, par
 }
 
 // ListNotes implements NoteStore interface
-func (p *ProxyClient) ListNotes(ctx context.Context, accountID uuid.UUID) (notes []store.Note, err error) {
+func (p *ProxyClient) ListNotes(ctx context.Context, accountID uuid.UUID) (notes []uuid.UUID, err error) {
 	if p.statsCollector != nil {
 		start := time.Now()
 		defer func() {
@@ -276,4 +276,3 @@ func (p *ProxyClient) ExportShardStats(ctx context.Context) (telemetry.Stats, er
 
 	return stats, nil
 }
-

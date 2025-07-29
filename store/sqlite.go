@@ -105,8 +105,8 @@ type sqliteNoteStore struct {
 	db     *sql.DB
 }
 
-func (s *sqliteNoteStore) ListNotes(ctx context.Context, accountID uuid.UUID) ([]Note, error) {
-	query := `SELECT id, creator, created_at, updated_at, content FROM notes WHERE creator = ?`
+func (s *sqliteNoteStore) ListNotes(ctx context.Context, accountID uuid.UUID) ([]uuid.UUID, error) {
+	query := `SELECT id FROM notes WHERE creator = ?`
 
 	var rows *sql.Rows
 	err := util.Retry(ctx, defaultRetryConfig, func() error {
@@ -119,30 +119,20 @@ func (s *sqliteNoteStore) ListNotes(ctx context.Context, accountID uuid.UUID) ([
 	}
 	defer rows.Close()
 
-	var notes []Note
+	var notes []uuid.UUID
 	for rows.Next() {
-		var note Note
-		var idStr, creatorStr string
-		var createdAtMillis, updatedAtMillis int64
-		err := rows.Scan(&idStr, &creatorStr, &createdAtMillis, &updatedAtMillis, &note.Content)
+		var idStr string
+		err := rows.Scan(&idStr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan note: %w", err)
 		}
 
-		note.ID, err = uuid.Parse(idStr)
+		noteID, err := uuid.Parse(idStr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse note ID: %w", err)
 		}
 
-		note.Creator, err = uuid.Parse(creatorStr)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse creator ID: %w", err)
-		}
-
-		note.CreatedAt = time.UnixMilli(createdAtMillis)
-		note.UpdatedAt = time.UnixMilli(updatedAtMillis)
-
-		notes = append(notes, note)
+		notes = append(notes, noteID)
 	}
 
 	if err := rows.Err(); err != nil {

@@ -37,7 +37,7 @@ type AccountStore interface {
 }
 
 type NoteStore interface {
-	ListNotes(ctx context.Context, accountID uuid.UUID) ([]Note, error)
+	ListNotes(ctx context.Context, accountID uuid.UUID) ([]uuid.UUID, error)
 	GetNote(ctx context.Context, accountID, noteID uuid.UUID) (*Note, error)
 	CreateNote(ctx context.Context, accountID uuid.UUID, note Note) error
 

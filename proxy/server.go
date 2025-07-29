@@ -101,7 +101,7 @@ func (p *DataProxy) sendError(w http.ResponseWriter, id int, errorMsg string) {
 	json.NewEncoder(w).Encode(response)
 }
 
-func (p *DataProxy) handleMethod(ctx context.Context, method string, params interface{}) (interface{}, error) {
+func (p *DataProxy) handleMethod(ctx context.Context, method string, params any) (any, error) {
 	switch method {
 	case "ListNotes":
 		var args struct {
@@ -193,3 +193,4 @@ func (p *DataProxy) unmarshalParams(params interface{}, target interface{}) erro
 	}
 	return nil
 }
+

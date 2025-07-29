@@ -222,7 +222,7 @@ func (dc *DeploymentController) Close() error {
 // NoteStore interface implementation - forwards calls to current/previous proxies
 
 // ListNotes implements NoteStore interface
-func (dc *DeploymentController) ListNotes(ctx context.Context, accountID uuid.UUID) ([]store.Note, error) {
+func (dc *DeploymentController) ListNotes(ctx context.Context, accountID uuid.UUID) ([]uuid.UUID, error) {
 	proxy := dc.selectProxy()
 	if proxy == nil {
 		return nil, fmt.Errorf("no proxy available")
