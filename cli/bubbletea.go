@@ -451,15 +451,19 @@ func (m *Model) renderVerticalLayout(panelStyle, logsPanelStyle, titleStyle, hel
 	panelHeight := max(minPanelHeight, (height-20)/4) // Ensure minimum height
 	logsPanelHeight := height - (3 * panelHeight) - 8 // Logs take remaining space
 	panelWidth := width - 4
+	tableWidth := panelWidth - 4
+
+	// Recalculate column widths for the actual table width
+	m.adjustColumnWidths(tableWidth, tableWidth)
 
 	// Update table sizes
-	m.apiTable = table.New(table.WithColumns(m.apiTable.Columns()),
+	m.apiTable = table.New(table.WithColumns(m.apiColumns),
 		table.WithRows(m.apiTable.Rows()),
-		table.WithWidth(panelWidth-4),
+		table.WithWidth(tableWidth),
 		table.WithHeight(panelHeight-6))
-	m.dataStoreTable = table.New(table.WithColumns(m.dataStoreTable.Columns()),
+	m.dataStoreTable = table.New(table.WithColumns(m.dataStoreColumns),
 		table.WithRows(m.dataStoreTable.Rows()),
-		table.WithWidth(panelWidth-4),
+		table.WithWidth(tableWidth),
 		table.WithHeight(panelHeight-6))
 
 	// Render each panel in desired order: API requests & data store access (top), deployment (middle), logs (bottom)
@@ -502,15 +506,19 @@ func (m *Model) renderGridLayout(panelStyle, logsPanelStyle, titleStyle, helpSty
 	topPanelHeight := max(minTopPanelHeight, (height-20)/4)             // Top row gets space for content
 	middlePanelHeight := max(12, (height-20)/6)                         // Increased from 8 to accommodate proxy stats tables
 	logsPanelHeight := height - topPanelHeight - middlePanelHeight - 12 // Logs take remaining space
+	tableWidth := panelWidth - 4
+
+	// Recalculate column widths for the actual table width
+	m.adjustColumnWidths(tableWidth, tableWidth)
 
 	// Update table sizes
-	m.apiTable = table.New(table.WithColumns(m.apiTable.Columns()),
+	m.apiTable = table.New(table.WithColumns(m.apiColumns),
 		table.WithRows(m.apiTable.Rows()),
-		table.WithWidth(panelWidth-4),
+		table.WithWidth(tableWidth),
 		table.WithHeight(topPanelHeight-6))
-	m.dataStoreTable = table.New(table.WithColumns(m.dataStoreTable.Columns()),
+	m.dataStoreTable = table.New(table.WithColumns(m.dataStoreColumns),
 		table.WithRows(m.dataStoreTable.Rows()),
-		table.WithWidth(panelWidth-4),
+		table.WithWidth(tableWidth),
 		table.WithHeight(topPanelHeight-6))
 
 	// Render top row panels (API requests and Data Store Access)
@@ -553,17 +561,21 @@ func (m *Model) renderPage1(panelStyle lipgloss.Style, titleStyle lipgloss.Style
 	
 	// Split width for top row
 	halfWidth := (width - 2) / 2
+	tableWidth := halfWidth - 4
+
+	// Recalculate column widths for the actual table width
+	m.adjustColumnWidths(tableWidth, tableWidth)
 
 	// Update table sizes
 	tableHeight := topRowHeight - 6
-	m.apiTable = table.New(table.WithColumns(m.apiTable.Columns()),
+	m.apiTable = table.New(table.WithColumns(m.apiColumns),
 		table.WithRows(m.apiTable.Rows()),
-		table.WithWidth(halfWidth-4),
+		table.WithWidth(tableWidth),
 		table.WithHeight(tableHeight))
 	
-	m.dataStoreTable = table.New(table.WithColumns(m.dataStoreTable.Columns()),
+	m.dataStoreTable = table.New(table.WithColumns(m.dataStoreColumns),
 		table.WithRows(m.dataStoreTable.Rows()),
-		table.WithWidth(halfWidth-4),
+		table.WithWidth(tableWidth),
 		table.WithHeight(tableHeight))
 
 	// Render API requests panel
@@ -736,7 +748,7 @@ func (m *Model) updateAPIStats() {
 	styles.Selected = lipgloss.NewStyle()
 
 	m.apiTable = table.New(
-		table.WithColumns(m.apiTable.Columns()),
+		table.WithColumns(m.apiColumns),
 		table.WithRows(rows),
 		table.WithWidth(m.apiTable.Width()),
 		table.WithHeight(m.apiTable.Height()),
@@ -811,7 +823,7 @@ func (m *Model) updateDataStoreStats() {
 	styles.Selected = lipgloss.NewStyle()
 
 	m.dataStoreTable = table.New(
-		table.WithColumns(m.dataStoreTable.Columns()),
+		table.WithColumns(m.dataStoreColumns),
 		table.WithRows(rows),
 		table.WithWidth(m.dataStoreTable.Width()),
 		table.WithHeight(m.dataStoreTable.Height()),
