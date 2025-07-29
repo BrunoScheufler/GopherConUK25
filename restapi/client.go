@@ -98,8 +98,8 @@ func (c *RestAPIClient) UpdateAccount(ctx context.Context, account store.Account
 
 // Note operations
 
-func (c *RestAPIClient) ListNotes(ctx context.Context, accountID uuid.UUID) ([]store.Note, error) {
-	var notes []store.Note
+func (c *RestAPIClient) ListNotes(ctx context.Context, accountID uuid.UUID) ([]uuid.UUID, error) {
+	var notes []uuid.UUID
 	path := fmt.Sprintf("/accounts/%s/notes", accountID.String())
 	err := c.doRequest(ctx, "GET", path, nil, &notes)
 	return notes, err
@@ -130,3 +130,4 @@ func (c *RestAPIClient) DeleteNote(ctx context.Context, accountID, noteID uuid.U
 	path := fmt.Sprintf("/accounts/%s/notes/%s", accountID.String(), noteID.String())
 	return c.doRequest(ctx, "DELETE", path, nil, nil)
 }
+

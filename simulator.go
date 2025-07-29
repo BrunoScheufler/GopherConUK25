@@ -331,7 +331,7 @@ func (al *AccountLoop) deleteNote() error {
 }
 
 func (al *AccountLoop) listNotes() error {
-	notes, err := al.apiClient.ListNotes(al.ctx, al.accountID)
+	noteIDs, err := al.apiClient.ListNotes(al.ctx, al.accountID)
 	if err != nil {
 		return fmt.Errorf("failed to list notes: %w", err)
 	}
@@ -341,8 +341,13 @@ func (al *AccountLoop) listNotes() error {
 
 	// Check that all server notes exist in our local map
 	serverNotes := make(map[uuid.UUID]string)
-	for _, note := range notes {
-		serverNotes[note.ID] = hashContents(note.Content)
+	for _, noteID := range noteIDs {
+		note, err := al.apiClient.GetNote(al.ctx, al.accountID, noteID)
+		if err != nil {
+			return fmt.Errorf("could not retrieve note: %w", err)
+		}
+
+		serverNotes[noteID] = hashContents(note.Content)
 
 		// Check if this note should exist in our local map
 		if expectedHash, exists := al.notes[note.ID]; exists {
