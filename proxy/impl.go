@@ -13,15 +13,12 @@ import (
 )
 
 func (p *DataProxy) init() error {
-	dbName := constants.LegacyNoteStore
-
-	noteStore, err := store.NewNoteStore(store.DefaultStoreOptions(dbName, p.logger))
+	legacyStore, err := store.NewNoteStore(store.DefaultStoreOptions(constants.LegacyNoteStore, p.logger))
 	if err != nil {
 		return fmt.Errorf("failed to create note store: %w", err)
 	}
 
-	p.shardID = dbName
-	p.noteStore = noteStore
+	p.legacyNoteStore = legacyStore
 
 	return nil
 }
@@ -32,13 +29,13 @@ func (p *DataProxy) ListNotes(ctx context.Context, accountID uuid.UUID) ([]store
 	defer p.mu.Unlock()
 
 	start := time.Now()
-	result, err := p.noteStore.ListNotes(ctx, accountID)
+	result, err := p.legacyNoteStore.ListNotes(ctx, accountID)
 	status := telemetry.DataStoreAccessStatusSuccess
 	if err != nil {
 		status = telemetry.DataStoreAccessStatusError
 	}
 	// Track metrics, ignoring errors to avoid disrupting main operation
-	_ = p.statsCollector.TrackDataStoreAccess("ListNotes", time.Since(start), p.shardID, status)
+	_ = p.statsCollector.TrackDataStoreAccess("ListNotes", time.Since(start), constants.LegacyNoteStore, status)
 	return result, err
 }
 
@@ -48,13 +45,13 @@ func (p *DataProxy) GetNote(ctx context.Context, accountID, noteID uuid.UUID) (*
 	defer p.mu.Unlock()
 
 	start := time.Now()
-	result, err := p.noteStore.GetNote(ctx, accountID, noteID)
+	result, err := p.legacyNoteStore.GetNote(ctx, accountID, noteID)
 	status := telemetry.DataStoreAccessStatusSuccess
 	if err != nil {
 		status = telemetry.DataStoreAccessStatusError
 	}
 	// Track metrics, ignoring errors to avoid disrupting main operation
-	_ = p.statsCollector.TrackDataStoreAccess("GetNote", time.Since(start), p.shardID, status)
+	_ = p.statsCollector.TrackDataStoreAccess("GetNote", time.Since(start), constants.LegacyNoteStore, status)
 	return result, err
 }
 
@@ -64,20 +61,20 @@ func (p *DataProxy) CreateNote(ctx context.Context, accountID uuid.UUID, note st
 	defer p.mu.Unlock()
 
 	start := time.Now()
-	err := p.noteStore.CreateNote(ctx, accountID, note)
+	err := p.legacyNoteStore.CreateNote(ctx, accountID, note)
 	status := telemetry.DataStoreAccessStatusSuccess
 	if err != nil {
 		status = telemetry.DataStoreAccessStatusError
 	}
 	// Track metrics, ignoring errors to avoid disrupting main operation
-	_ = p.statsCollector.TrackDataStoreAccess("CreateNote", time.Since(start), p.shardID, status)
+	_ = p.statsCollector.TrackDataStoreAccess("CreateNote", time.Since(start), constants.LegacyNoteStore, status)
 
 	// Report new total count
-	totalCount, err := p.noteStore.GetTotalNotes(ctx)
+	totalCount, err := p.legacyNoteStore.GetTotalNotes(ctx)
 	if err != nil {
 		return fmt.Errorf("could not retrieve total note count: %w", err)
 	}
-	p.statsCollector.TrackNoteCount(p.shardID, totalCount)
+	p.statsCollector.TrackNoteCount(constants.LegacyNoteStore, totalCount)
 	return err
 }
 
@@ -87,13 +84,13 @@ func (p *DataProxy) UpdateNote(ctx context.Context, accountID uuid.UUID, note st
 	defer p.mu.Unlock()
 
 	start := time.Now()
-	err := p.noteStore.UpdateNote(ctx, accountID, note)
+	err := p.legacyNoteStore.UpdateNote(ctx, accountID, note)
 	status := telemetry.DataStoreAccessStatusSuccess
 	if err != nil {
 		status = telemetry.DataStoreAccessStatusError
 	}
 	// Track metrics, ignoring errors to avoid disrupting main operation
-	_ = p.statsCollector.TrackDataStoreAccess("UpdateNote", time.Since(start), p.shardID, status)
+	_ = p.statsCollector.TrackDataStoreAccess("UpdateNote", time.Since(start), constants.LegacyNoteStore, status)
 	return err
 }
 
@@ -103,20 +100,20 @@ func (p *DataProxy) DeleteNote(ctx context.Context, accountID uuid.UUID, note st
 	defer p.mu.Unlock()
 
 	start := time.Now()
-	err := p.noteStore.DeleteNote(ctx, accountID, note)
+	err := p.legacyNoteStore.DeleteNote(ctx, accountID, note)
 	status := telemetry.DataStoreAccessStatusSuccess
 	if err != nil {
 		status = telemetry.DataStoreAccessStatusError
 	}
 	// Track metrics, ignoring errors to avoid disrupting main operation
-	_ = p.statsCollector.TrackDataStoreAccess("DeleteNote", time.Since(start), p.shardID, status)
+	_ = p.statsCollector.TrackDataStoreAccess("DeleteNote", time.Since(start), constants.LegacyNoteStore, status)
 
 	// Report new total count
-	totalCount, err := p.noteStore.GetTotalNotes(ctx)
+	totalCount, err := p.legacyNoteStore.GetTotalNotes(ctx)
 	if err != nil {
 		return fmt.Errorf("could not retrieve total note count: %w", err)
 	}
-	p.statsCollector.TrackNoteCount(p.shardID, totalCount)
+	p.statsCollector.TrackNoteCount(constants.LegacyNoteStore, totalCount)
 
 	return err
 }
@@ -125,7 +122,7 @@ func (p *DataProxy) DeleteNote(ctx context.Context, accountID uuid.UUID, note st
 func (p *DataProxy) CountNotes(ctx context.Context, accountID uuid.UUID) (int, error) {
 	p.lockWithContentionTracking("CountNotes")
 	defer p.mu.Unlock()
-	return p.noteStore.CountNotes(ctx, accountID)
+	return p.legacyNoteStore.CountNotes(ctx, accountID)
 }
 
 // GetTotalNotes implements NoteStore interface with locking
@@ -133,12 +130,12 @@ func (p *DataProxy) GetTotalNotes(ctx context.Context) (int, error) {
 	p.lockWithContentionTracking("GetTotalNotes")
 	defer p.mu.Unlock()
 
-	totalCount, err := p.noteStore.GetTotalNotes(ctx)
+	totalCount, err := p.legacyNoteStore.GetTotalNotes(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("could not retrieve total count: %w", err)
 	}
 
-	p.statsCollector.TrackNoteCount(p.shardID, totalCount)
+	p.statsCollector.TrackNoteCount(constants.LegacyNoteStore, totalCount)
 
 	return totalCount, nil
 }
@@ -147,7 +144,7 @@ func (p *DataProxy) GetTotalNotes(ctx context.Context) (int, error) {
 func (p *DataProxy) HealthCheck(ctx context.Context) error {
 	p.lockWithContentionTracking("HealthCheck")
 	defer p.mu.Unlock()
-	return p.noteStore.HealthCheck(ctx)
+	return p.legacyNoteStore.HealthCheck(ctx)
 }
 
 // Ready RPC method for readiness checks

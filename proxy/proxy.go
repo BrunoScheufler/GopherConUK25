@@ -13,11 +13,12 @@ import (
 
 // DataProxy implements the NoteStore interface with synchronization
 type DataProxy struct {
-	proxyID        int
-	port           int
-	noteStore      store.NoteStore
+	proxyID int
+	port    int
+
+	legacyNoteStore store.NoteStore
+
 	statsCollector telemetry.StatsCollector
-	shardID        string
 	mu             sync.Mutex
 	server         *http.Server
 	logger         *slog.Logger
