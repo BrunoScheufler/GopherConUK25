@@ -42,14 +42,27 @@ func (p *DataProxy) ListNotes(ctx context.Context, accountDetails AccountDetails
 	start := time.Now()
 	result, err := p.legacyNoteStore.ListNotes(ctx, accountDetails.AccountID)
 
-	// TODO: Retrieve notes from new store
-
 	status := telemetry.DataStoreAccessStatusSuccess
 	if err != nil {
 		status = telemetry.DataStoreAccessStatusError
 	}
+
 	// Track metrics, ignoring errors to avoid disrupting main operation
 	_ = p.statsCollector.TrackDataStoreAccess("ListNotes", time.Since(start), constants.LegacyNoteStore, status)
+
+	// Retrieve notes from new store
+	resultNew, err := p.newNoteStore.ListNotes(ctx, accountID)
+
+	status = telemetry.DataStoreAccessStatusSuccess
+	if err != nil {
+		status = telemetry.DataStoreAccessStatusError
+	}
+
+	// Track metrics, ignoring errors to avoid disrupting main operation
+	_ = p.statsCollector.TrackDataStoreAccess("ListNotes", time.Since(start), constants.NewNoteStore, status)
+
+	result = append(result, resultNew...)
+
 	return result, err
 }
 
