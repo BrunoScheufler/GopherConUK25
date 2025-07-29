@@ -33,5 +33,5 @@ const (
 // Note store identifier constants
 const (
 	LegacyNoteStore = "legacy"
+	NewNoteStore    = "new"
 )
-
