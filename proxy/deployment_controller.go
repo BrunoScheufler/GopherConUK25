@@ -41,13 +41,13 @@ func (s DeploymentStatus) String() string {
 
 // DeploymentController manages rolling releases of data proxy processes
 type DeploymentController struct {
-	mu               sync.RWMutex
-	current          *DataProxyProcess
-	previous         *DataProxyProcess
-	status           DeploymentStatus
-	deployStartTime  time.Time // Track when deployment started
-	deployMu         sync.Mutex // Separate mutex for deploy operations
-	telemetry        *telemetry.Telemetry
+	mu              sync.RWMutex
+	current         *DataProxyProcess
+	previous        *DataProxyProcess
+	status          DeploymentStatus
+	deployStartTime time.Time  // Track when deployment started
+	deployMu        sync.Mutex // Separate mutex for deploy operations
+	telemetry       *telemetry.Telemetry
 }
 
 // NewDeploymentController creates a new deployment controller
@@ -83,21 +83,21 @@ func (dc *DeploymentController) Status() DeploymentStatus {
 func (dc *DeploymentController) GetDeploymentProgress() (isActive bool, elapsedSeconds int, totalSeconds int, progressPercent int) {
 	dc.mu.RLock()
 	defer dc.mu.RUnlock()
-	
+
 	// Only show progress during rollout wait phase
 	if dc.status != StatusRolloutWait {
 		return false, 0, 0, 0
 	}
-	
+
 	totalSeconds = int(constants.DeploymentWaitTime.Seconds())
 	elapsed := time.Since(dc.deployStartTime)
 	elapsedSeconds = int(elapsed.Seconds())
-	
+
 	// Cap elapsed time at total duration
 	if elapsedSeconds > totalSeconds {
 		elapsedSeconds = totalSeconds
 	}
-	
+
 	// Calculate percentage
 	if totalSeconds > 0 {
 		progressPercent = (elapsedSeconds * 100) / totalSeconds
@@ -105,7 +105,7 @@ func (dc *DeploymentController) GetDeploymentProgress() (isActive bool, elapsedS
 			progressPercent = 100
 		}
 	}
-	
+
 	return true, elapsedSeconds, totalSeconds, progressPercent
 }
 
@@ -114,7 +114,7 @@ func (dc *DeploymentController) setStatus(status DeploymentStatus) {
 	dc.mu.Lock()
 	defer dc.mu.Unlock()
 	dc.status = status
-	
+
 	// Track deployment start time when entering rollout wait phase
 	if status == StatusRolloutWait {
 		dc.deployStartTime = time.Now()
@@ -137,7 +137,7 @@ func (dc *DeploymentController) Deploy() error {
 		// Initial deployment - no current proxy exists
 		dc.setStatus(StatusRolloutLaunchNew)
 
-		dataProxyProcess, err := LaunchDataProxy(1, dc.telemetry.GetStatsCollector())
+		dataProxyProcess, err := LaunchDataProxy(1, dc.telemetry.GetStatsCollector(), dc.telemetry.LogCapture)
 		if err != nil {
 			dc.setStatus(StatusInitial)
 			return fmt.Errorf("failed to launch initial data proxy: %w", err)
@@ -162,7 +162,7 @@ func (dc *DeploymentController) Deploy() error {
 
 	// Launch new proxy with incremented ID
 	newID := previousID + 1
-	newDataProxyProcess, err := LaunchDataProxy(newID, dc.telemetry.GetStatsCollector())
+	newDataProxyProcess, err := LaunchDataProxy(newID, dc.telemetry.GetStatsCollector(), dc.telemetry.LogCapture)
 	if err != nil {
 		dc.setStatus(StatusReady)
 		return fmt.Errorf("failed to launch new data proxy: %w", err)
@@ -386,4 +386,3 @@ func (dc *DeploymentController) collectProxyStats() {
 		}
 	}
 }
-

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -100,7 +101,8 @@ func (s *sqliteAccountStore) HealthCheck(ctx context.Context) error {
 }
 
 type sqliteNoteStore struct {
-	db *sql.DB
+	logger *slog.Logger
+	db     *sql.DB
 }
 
 func (s *sqliteNoteStore) ListNotes(ctx context.Context, accountID uuid.UUID) ([]Note, error) {
@@ -200,23 +202,25 @@ func (s *sqliteNoteStore) CreateNote(ctx context.Context, accountID uuid.UUID, n
 func (s *sqliteNoteStore) UpdateNote(ctx context.Context, accountID uuid.UUID, note Note) error {
 	query := `UPDATE notes SET content = ?, updated_at = ? WHERE id = ? AND creator = ? AND updated_at < ?`
 
-	var result sql.Result
+	s.logger.Debug("updating note",
+		"id", note.ID.String(),
+		"updated_at", note.UpdatedAt.Format(time.StampMilli),
+		"creator", note.Creator.String(),
+	)
+
 	err := util.Retry(ctx, defaultRetryConfig, func() error {
 		var execErr error
-		result, execErr = s.db.ExecContext(ctx, query, note.Content, note.UpdatedAt.UnixMilli(), note.ID.String(), accountID.String(), note.UpdatedAt.UnixMilli())
+		_, execErr = s.db.ExecContext(ctx, query,
+			note.Content,
+			note.UpdatedAt.UnixMilli(),
+			note.ID.String(),
+			accountID.String(),
+			note.UpdatedAt.UnixMilli(),
+		)
 		return execErr
 	})
 	if err != nil {
 		return fmt.Errorf("failed to update note: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-
-	if rowsAffected == 0 {
-		return ErrNoteNotFound
 	}
 
 	return nil
@@ -225,23 +229,13 @@ func (s *sqliteNoteStore) UpdateNote(ctx context.Context, accountID uuid.UUID, n
 func (s *sqliteNoteStore) DeleteNote(ctx context.Context, accountID uuid.UUID, note Note) error {
 	query := `DELETE FROM notes WHERE id = ? AND creator = ?`
 
-	var result sql.Result
 	err := util.Retry(ctx, defaultRetryConfig, func() error {
 		var execErr error
-		result, execErr = s.db.ExecContext(ctx, query, note.ID.String(), accountID.String())
+		_, execErr = s.db.ExecContext(ctx, query, note.ID.String(), accountID.String())
 		return execErr
 	})
 	if err != nil {
 		return fmt.Errorf("failed to delete note: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-
-	if rowsAffected == 0 {
-		return ErrNoteNotFound
 	}
 
 	return nil
@@ -293,13 +287,15 @@ type StoreOptions struct {
 	Name     string
 	BasePath string
 	Config   DatabaseConfig
+	Logger   *slog.Logger
 }
 
 // DefaultStoreOptions returns sensible defaults for store creation
-func DefaultStoreOptions(name string) StoreOptions {
+func DefaultStoreOptions(name string, logger *slog.Logger) StoreOptions {
 	return StoreOptions{
 		Name:   name,
 		Config: DefaultDatabaseConfig(),
+		Logger: logger,
 	}
 }
 
@@ -328,7 +324,15 @@ func NewNoteStore(opts StoreOptions) (NoteStore, error) {
 		return nil, fmt.Errorf("could not create notes table: %w", err)
 	}
 
-	return &sqliteNoteStore{db}, nil
+	logger := opts.Logger
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
+	}
+
+	return &sqliteNoteStore{
+		logger: logger,
+		db:     db,
+	}, nil
 }
 
 func createNotesTable(db *sql.DB) error {
@@ -379,12 +383,6 @@ func createSQLiteDatabaseWithPath(name, basePath string, config DatabaseConfig) 
 
 	// Configure SQLite for multi-process access with WAL mode and timeouts
 	dsn := fmt.Sprintf("file:%s", file)
-	if config.EnableWAL {
-		// https://www.sqlite.org/pragma.html#pragma_journal_mode
-		// https://www.sqlite.org/pragma.html#pragma_busy_timeout
-		// https://www.sqlite.org/pragma.html#pragma_synchronous
-		dsn += "?journal_mode=WAL&busy_timeout=0&synchronous=FULL"
-	}
 
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
@@ -395,6 +393,26 @@ func createSQLiteDatabaseWithPath(name, basePath string, config DatabaseConfig) 
 	db.SetMaxOpenConns(1) // Single connection to prevent lock contention
 	db.SetMaxIdleConns(1)
 	db.SetConnMaxLifetime(config.ConnMaxLifetime)
+
+	if config.EnableWAL {
+		// https://www.sqlite.org/pragma.html#pragma_journal_mode
+		_, err = db.Exec("PRAGMA journal_mode = WAL;")
+		if err != nil {
+			return nil, fmt.Errorf("could not enable WAL mode: %w", err)
+		}
+
+		// https://www.sqlite.org/pragma.html#pragma_busy_timeout
+		_, err = db.Exec("PRAGMA busy_timeout = 0;")
+		if err != nil {
+			return nil, fmt.Errorf("could not configure busy timeout: %w", err)
+		}
+
+		// https://www.sqlite.org/pragma.html#pragma_synchronous
+		_, err = db.Exec("PRAGMA synchronous = FULL;")
+		if err != nil {
+			return nil, fmt.Errorf("could not enable synchronous mode: %w", err)
+		}
+	}
 
 	return db, nil
 }

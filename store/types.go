@@ -43,10 +43,9 @@ type NoteStore interface {
 
 	// UpdateNote updates an existing note if, and only if, the update timestamp is newer than the latest version.
 	// This is necessary to ensure the last write wins.
-	// If the note does not exist, ErrNoteNotFound will be returned.
 	UpdateNote(ctx context.Context, accountID uuid.UUID, note Note) error
 
-	// DeleteNote removes a given note. If the note does not exist, ErrNoteNotFound will be returned.
+	// DeleteNote removes a given note, if it exists. This operation is idempotent.
 	DeleteNote(ctx context.Context, accountID uuid.UUID, note Note) error
 	CountNotes(ctx context.Context, accountID uuid.UUID) (int, error)
 	GetTotalNotes(ctx context.Context) (int, error)

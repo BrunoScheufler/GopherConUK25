@@ -98,14 +98,14 @@ func (s *Simulator) UpdateLogger() {
 func (s *Simulator) Stop() {
 	s.logger.Info("Stopping load generator...")
 	s.cancel()
-	
+
 	// Wait for goroutines to finish with a timeout to prevent hanging
 	done := make(chan struct{})
 	go func() {
 		s.wg.Wait()
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		s.logger.Info("Load generator stopped")
@@ -187,7 +187,6 @@ func (al *AccountLoop) createInitialNotes(count int) error {
 			return fmt.Errorf("failed to create note: %w", err)
 		}
 
-	
 		al.notesLock.Lock()
 		al.notes[createdNote.ID] = hashContents(createdNote.Content)
 		al.notesLock.Unlock()
@@ -233,7 +232,6 @@ func (al *AccountLoop) createNote() error {
 		return fmt.Errorf("failed to create note: %w", err)
 	}
 
-
 	al.notesLock.Lock()
 	al.notes[createdNote.ID] = hashContents(createdNote.Content)
 	al.notesLock.Unlock()
@@ -244,7 +242,7 @@ func (al *AccountLoop) createNote() error {
 func (al *AccountLoop) updateNote() error {
 	al.notesLock.Lock()
 	defer al.notesLock.Unlock()
-	
+
 	if len(al.notes) == 0 {
 		return nil // No notes to update
 	}
@@ -256,11 +254,12 @@ func (al *AccountLoop) updateNote() error {
 	}
 	randomNoteID := noteIDs[rand.Intn(len(noteIDs))]
 
-	newContent := fmt.Sprintf("Updated at %s", time.Now().Format(time.RFC3339))
+	updatedAt := time.Now()
+	newContent := fmt.Sprintf("Updated at %s", updatedAt.Format(time.RFC3339))
 	note := store.Note{
 		ID:        randomNoteID,
 		Creator:   al.accountID,
-		CreatedAt: time.Now(), // This will be ignored by the API
+		UpdatedAt: updatedAt,
 		Content:   newContent,
 	}
 
@@ -268,7 +267,6 @@ func (al *AccountLoop) updateNote() error {
 	if err != nil {
 		return fmt.Errorf("failed to update note: %w", err)
 	}
-
 
 	// Update the hash while still holding the lock
 	al.notes[updatedNote.ID] = hashContents(updatedNote.Content)
@@ -296,7 +294,6 @@ func (al *AccountLoop) readNote() error {
 	if err != nil {
 		return fmt.Errorf("failed to read note: %w", err)
 	}
-
 
 	// Check content consistency
 	actualHash := hashContents(note.Content)
@@ -327,7 +324,6 @@ func (al *AccountLoop) deleteNote() error {
 		return fmt.Errorf("failed to delete note: %w", err)
 	}
 
-
 	// Remove from local tracking
 	delete(al.notes, randomNoteID)
 
@@ -339,7 +335,6 @@ func (al *AccountLoop) listNotes() error {
 	if err != nil {
 		return fmt.Errorf("failed to list notes: %w", err)
 	}
-
 
 	al.notesLock.RLock()
 	defer al.notesLock.RUnlock()

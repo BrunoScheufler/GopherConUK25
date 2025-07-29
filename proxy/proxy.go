@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sync"
 
@@ -19,10 +20,11 @@ type DataProxy struct {
 	shardID        string
 	mu             sync.Mutex
 	server         *http.Server
+	logger         *slog.Logger
 }
 
 // NewDataProxy creates a new DataProxy instance with a SQLite note store
-func NewDataProxy(id int, port int) (*DataProxy, error) {
+func NewDataProxy(id int, port int, logger *slog.Logger) (*DataProxy, error) {
 	// Create a local stats collector for data store tracking
 	statsCollector := telemetry.NewStatsCollector()
 
@@ -30,6 +32,7 @@ func NewDataProxy(id int, port int) (*DataProxy, error) {
 		proxyID:        id,
 		port:           port,
 		statsCollector: statsCollector,
+		logger:         logger,
 	}
 
 	err := p.init()

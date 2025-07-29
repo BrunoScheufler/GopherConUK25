@@ -85,12 +85,12 @@ func WithAppConfig(appConfig *AppConfig) ServerOption {
 func NewServer(options ...ServerOption) *Server {
 	// Default configuration - all fields start as nil and must be set via options
 	config := &serverConfig{}
-	
+
 	// Apply options
 	for _, option := range options {
 		option(config)
 	}
-	
+
 	return &Server{
 		accountStore:         config.accountStore,
 		noteStore:            config.noteStore,
@@ -138,10 +138,11 @@ func (rw *responseWriter) WriteHeader(code int) {
 
 // normalizeAPIPath converts paths with dynamic values to their patterns
 // e.g. "/accounts/123" -> "/accounts/{id}"
-//      "/accounts/123/notes/456" -> "/accounts/{accountId}/notes/{noteId}"
+//
+//	"/accounts/123/notes/456" -> "/accounts/{accountId}/notes/{noteId}"
 func normalizeAPIPath(path string) string {
 	// Compile patterns once and reuse
-	var patterns = []struct {
+	patterns := []struct {
 		regex       *regexp.Regexp
 		replacement string
 	}{
@@ -149,13 +150,13 @@ func normalizeAPIPath(path string) string {
 		{regexp.MustCompile(`^/accounts/[^/]+/notes$`), "/accounts/{accountId}/notes"},
 		{regexp.MustCompile(`^/accounts/[^/]+$`), "/accounts/{id}"},
 	}
-	
+
 	for _, pattern := range patterns {
 		if pattern.regex.MatchString(path) {
 			return pattern.replacement
 		}
 	}
-	
+
 	// Return original path if no pattern matches
 	return path
 }
@@ -166,7 +167,7 @@ func (s *Server) LoggingMiddleware(next http.Handler) http.Handler {
 		rw := &responseWriter{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rw, r)
 		duration := time.Since(start)
-		
+
 		// Track API request metrics with normalized path patterns
 		if err := s.telemetry.GetStatsCollector().TrackAPIRequest(
 			r.Method,
@@ -177,7 +178,7 @@ func (s *Server) LoggingMiddleware(next http.Handler) http.Handler {
 			// Log the error but don't fail the request
 			s.logger.Info("Failed to track API request metric", "error", err.Error())
 		}
-		
+
 		s.logger.Info("HTTP request",
 			"method", r.Method,
 			"path", r.URL.Path,
@@ -424,6 +425,10 @@ func (s *Server) handleCreateNote(w http.ResponseWriter, r *http.Request) {
 		note.CreatedAt = time.Now()
 	}
 
+	if note.UpdatedAt.IsZero() {
+		note.UpdatedAt = time.Now()
+	}
+
 	if err := s.noteStore.CreateNote(r.Context(), accountID, note); err != nil {
 		s.writeError(w, http.StatusInternalServerError, "Failed to create note")
 		return
@@ -459,6 +464,9 @@ func (s *Server) handleUpdateNote(w http.ResponseWriter, r *http.Request) {
 
 	note.ID = noteID
 	note.Creator = accountID
+	if note.UpdatedAt.IsZero() {
+		note.UpdatedAt = time.Now()
+	}
 
 	if err := s.noteStore.UpdateNote(r.Context(), accountID, note); err != nil {
 		s.logger.Error("Failed to update note", "error", err, "accountID", accountID, "noteID", noteID)

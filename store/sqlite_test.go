@@ -39,6 +39,7 @@ func setupTestStores(t *testing.T, dbName string) (AccountStore, NoteStore, stri
 		MaxOpenConns:    1,
 		MaxIdleConns:    1,
 		ConnMaxLifetime: 5 * time.Minute,
+		EnableWAL:       true,
 	}
 
 	opts := StoreOptions{
@@ -653,6 +654,7 @@ func TestUpdateConsistency(t *testing.T) {
 	accountStore1, noteStore1, _ := setupTestStores(t, "test_update_consistency")
 	defer accountStore1.Close()
 	defer noteStore1.Close()
+
 	accountStore2, noteStore2, _ := setupTestStores(t, "test_update_consistency")
 	defer accountStore2.Close()
 	defer noteStore2.Close()
@@ -693,19 +695,46 @@ func TestUpdateConsistency(t *testing.T) {
 		t.Fatalf("Failed to update note: %v", err)
 	}
 
-	// Immediately read with second connection
-	retrievedNote, err := noteStore2.GetNote(ctx, account.ID, originalNote.ID)
-	if err != nil {
-		t.Fatalf("Failed to read updated note: %v", err)
+	for {
+		// Immediately read with second connection
+		retrievedNote, err := noteStore1.GetNote(ctx, account.ID, originalNote.ID)
+		if err != nil {
+			t.Fatalf("Failed to read updated note: %v", err)
+		}
+
+		if retrievedNote == nil {
+			t.Fatal("Updated note not found")
+		}
+
+		// Verify the update is immediately visible
+		if retrievedNote.Content != updatedNote.Content {
+			t.Errorf("could not read own write: expected %q, got %q", updatedNote.Content, retrievedNote.Content)
+			<-time.After(100 * time.Millisecond)
+			continue
+		}
+
+		break
 	}
 
-	if retrievedNote == nil {
-		t.Fatal("Updated note not found")
-	}
+	for {
+		// Immediately read with second connection
+		retrievedNote, err := noteStore2.GetNote(ctx, account.ID, originalNote.ID)
+		if err != nil {
+			t.Fatalf("Failed to read updated note: %v", err)
+		}
 
-	// Verify the update is immediately visible
-	if retrievedNote.Content != updatedNote.Content {
-		t.Errorf("Update not immediately visible: expected %q, got %q", updatedNote.Content, retrievedNote.Content)
+		if retrievedNote == nil {
+			t.Fatal("Updated note not found")
+		}
+
+		// Verify the update is immediately visible
+		if retrievedNote.Content != updatedNote.Content {
+			t.Errorf("Update not immediately visible: expected %q, got %q", updatedNote.Content, retrievedNote.Content)
+			<-time.After(100 * time.Millisecond)
+			continue
+		}
+
+		break
 	}
 
 	// Test concurrent updates and reads
@@ -994,3 +1023,4 @@ func TestSQLiteContentionReads(t *testing.T) {
 	// Verify some reads succeeded despite contention
 	require.Greater(t, successfulReads, 0, "Expected at least some reads to succeed")
 }
+

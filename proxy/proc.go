@@ -35,15 +35,12 @@ func freePort() (int, error) {
 }
 
 // LaunchDataProxy starts a child process running a data proxy
-func LaunchDataProxy(id int, statsCollector telemetry.StatsCollector) (*DataProxyProcess, error) {
+func LaunchDataProxy(id int, statsCollector telemetry.StatsCollector, logCapture *telemetry.LogCapture) (*DataProxyProcess, error) {
 	// Get a free port for the proxy
 	port, err := freePort()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get free port: %w", err)
 	}
-
-	// Create log capture for proxy output
-	logCapture := telemetry.NewLogCapture(1000)
 
 	// Build the command to run the proxy
 	cmd := exec.Command(

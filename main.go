@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -139,7 +140,7 @@ func initializeStores(tel *telemetry.Telemetry) (store.AccountStore, store.NoteS
 	// Use deployment controller as note store
 	noteStore := deploymentController
 
-	accountStore, err := store.NewAccountStore(store.DefaultStoreOptions("accounts"))
+	accountStore, err := store.NewAccountStore(store.DefaultStoreOptions("accounts", tel.GetLogger()))
 	if err != nil {
 		deploymentController.Close() // Clean up proxy if account store creation fails
 		return nil, nil, nil, fmt.Errorf("could not create account store: %w", err)
@@ -237,7 +238,10 @@ func Run(config Config) error {
 		if config.ProxyPort == 0 {
 			return fmt.Errorf("--proxy-port is required when using --proxy")
 		}
-		return runDataProxy(config.ProxyID, config.ProxyPort)
+
+		tel := setupTelemetry(false, config.LogLevel)
+
+		return runDataProxy(config.ProxyID, config.ProxyPort, tel.GetLogger())
 	}
 
 	components, err := initializeApplication(config)
@@ -264,7 +268,7 @@ func Run(config Config) error {
 }
 
 // runDataProxy starts a data proxy server on the specified port
-func runDataProxy(id int, port int) error {
+func runDataProxy(id int, port int, logger *slog.Logger) error {
 	// Create context that cancels on signals
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -279,7 +283,7 @@ func runDataProxy(id int, port int) error {
 	}()
 
 	// Create data proxy with notes shard
-	dataProxy, err := proxy.NewDataProxy(id, port)
+	dataProxy, err := proxy.NewDataProxy(id, port, logger)
 	if err != nil {
 		return fmt.Errorf("failed to create data proxy: %w", err)
 	}
