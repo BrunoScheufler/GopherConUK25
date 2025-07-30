@@ -10,8 +10,9 @@ import (
 )
 
 type Account struct {
-	ID   uuid.UUID `json:"id"`
-	Name string    `json:"name"`
+	ID          uuid.UUID `json:"id"`
+	Name        string    `json:"name"`
+	IsMigrating bool      `json:"isMigrating"`
 }
 
 type Note struct {
@@ -30,6 +31,7 @@ type AccountStats struct {
 
 type AccountStore interface {
 	ListAccounts(ctx context.Context) ([]Account, error)
+	GetAccount(ctx context.Context, accountID uuid.UUID) (*Account, error)
 	CreateAccount(ctx context.Context, a Account) error
 	UpdateAccount(ctx context.Context, a Account) error
 	HealthCheck(ctx context.Context) error

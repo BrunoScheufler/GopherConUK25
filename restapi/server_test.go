@@ -14,13 +14,14 @@ import (
 // Mock implementations for testing
 type mockAccountStore struct{}
 func (m *mockAccountStore) ListAccounts(ctx context.Context) ([]store.Account, error) { return nil, nil }
+func (m *mockAccountStore) GetAccount(ctx context.Context, accountID uuid.UUID) (*store.Account, error) { return nil, nil }
 func (m *mockAccountStore) CreateAccount(ctx context.Context, account store.Account) error { return nil }
 func (m *mockAccountStore) UpdateAccount(ctx context.Context, account store.Account) error { return nil }
 func (m *mockAccountStore) HealthCheck(ctx context.Context) error { return nil }
 func (m *mockAccountStore) Close() error { return nil }
 
 type mockNoteStore struct{}
-func (m *mockNoteStore) ListNotes(ctx context.Context, accountID uuid.UUID) ([]store.Note, error) { return nil, nil }
+func (m *mockNoteStore) ListNotes(ctx context.Context, accountID uuid.UUID) ([]uuid.UUID, error) { return nil, nil }
 func (m *mockNoteStore) GetNote(ctx context.Context, accountID, noteID uuid.UUID) (*store.Note, error) { return nil, nil }
 func (m *mockNoteStore) CreateNote(ctx context.Context, accountID uuid.UUID, note store.Note) error { return nil }
 func (m *mockNoteStore) UpdateNote(ctx context.Context, accountID uuid.UUID, note store.Note) error { return nil }
@@ -35,7 +36,7 @@ func TestNewServer_Options(t *testing.T) {
 	mockNoteStore := &mockNoteStore{}
 	mockTelemetry := telemetry.New()
 	defer mockTelemetry.StatsCollector.Stop()
-	mockDeployment := proxy.NewDeploymentController(mockTelemetry)
+	mockDeployment := proxy.NewDeploymentController(mockTelemetry, mockAccountStore)
 	defer mockDeployment.Close()
 	
 	// Test with individual options

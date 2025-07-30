@@ -129,22 +129,23 @@ type ApplicationComponents struct {
 
 // initializeStores creates and initializes the account and note stores
 func initializeStores(tel *telemetry.Telemetry) (store.AccountStore, store.NoteStore, *proxy.DeploymentController, error) {
-	// Create deployment controller with telemetry
-	deploymentController := proxy.NewDeploymentController(tel)
+	// Create account store first
+	accountStore, err := store.NewAccountStore(store.DefaultStoreOptions("accounts", tel.GetLogger()))
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("could not create account store: %w", err)
+	}
+
+	// Create deployment controller with telemetry and account store
+	deploymentController := proxy.NewDeploymentController(tel, accountStore)
 
 	// Perform initial deployment
 	if err := deploymentController.Deploy(); err != nil {
+		accountStore.Close() // Clean up account store if deployment fails
 		return nil, nil, nil, fmt.Errorf("could not perform initial deployment: %w", err)
 	}
 
 	// Use deployment controller as note store
 	noteStore := deploymentController
-
-	accountStore, err := store.NewAccountStore(store.DefaultStoreOptions("accounts", tel.GetLogger()))
-	if err != nil {
-		deploymentController.Close() // Clean up proxy if account store creation fails
-		return nil, nil, nil, fmt.Errorf("could not create account store: %w", err)
-	}
 
 	return accountStore, noteStore, deploymentController, nil
 }

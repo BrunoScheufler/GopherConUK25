@@ -114,6 +114,7 @@ func (s *Server) SetupRoutes(mux *http.ServeMux) {
 
 	// Account management
 	mux.HandleFunc("GET /accounts", s.handleListAccounts)
+	mux.HandleFunc("GET /accounts/{id}", s.handleGetAccount)
 	mux.HandleFunc("POST /accounts", s.handleCreateAccount)
 	mux.HandleFunc("PUT /accounts/{id}", s.handleUpdateAccount)
 
@@ -286,6 +287,20 @@ func (s *Server) parseNoteID(w http.ResponseWriter, idStr string) (uuid.UUID, bo
 	return noteID, true
 }
 
+// validateAccountExists checks if an account exists and handles error response internally
+func (s *Server) validateAccountExists(w http.ResponseWriter, r *http.Request, accountID uuid.UUID) bool {
+	_, err := s.accountStore.GetAccount(r.Context(), accountID)
+	if err != nil {
+		if errors.Is(err, store.ErrAccountNotFound) {
+			s.writeError(w, http.StatusNotFound, "Account not found")
+			return false
+		}
+		s.writeError(w, http.StatusInternalServerError, "Failed to validate account")
+		return false
+	}
+	return true
+}
+
 func (s *Server) handleListAccounts(w http.ResponseWriter, r *http.Request) {
 	accounts, err := s.accountStore.ListAccounts(r.Context())
 	if err != nil {
@@ -293,6 +308,26 @@ func (s *Server) handleListAccounts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.writeJSON(w, http.StatusOK, accounts)
+}
+
+func (s *Server) handleGetAccount(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	accountID, ok := s.parseAccountID(w, idStr)
+	if !ok {
+		return
+	}
+
+	account, err := s.accountStore.GetAccount(r.Context(), accountID)
+	if err != nil {
+		if errors.Is(err, store.ErrAccountNotFound) {
+			s.writeError(w, http.StatusNotFound, "Account not found")
+			return
+		}
+		s.writeError(w, http.StatusInternalServerError, "Failed to get account")
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, account)
 }
 
 func (s *Server) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
@@ -360,6 +395,11 @@ func (s *Server) handleListNotes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate that the account exists before listing notes
+	if !s.validateAccountExists(w, r, accountID) {
+		return
+	}
+
 	notes, err := s.noteStore.ListNotes(r.Context(), accountID)
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, "Failed to list notes")
@@ -382,6 +422,11 @@ func (s *Server) handleGetNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate that the account exists before getting note
+	if !s.validateAccountExists(w, r, accountID) {
+		return
+	}
+
 	note, err := s.noteStore.GetNote(r.Context(), accountID, noteID)
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, "Failed to get note")
@@ -400,6 +445,11 @@ func (s *Server) handleCreateNote(w http.ResponseWriter, r *http.Request) {
 	accountIDStr := r.PathValue("accountId")
 	accountID, ok := s.parseAccountID(w, accountIDStr)
 	if !ok {
+		return
+	}
+
+	// Validate that the account exists before creating note
+	if !s.validateAccountExists(w, r, accountID) {
 		return
 	}
 
@@ -450,6 +500,11 @@ func (s *Server) handleUpdateNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate that the account exists before updating note
+	if !s.validateAccountExists(w, r, accountID) {
+		return
+	}
+
 	var note store.Note
 	if err := json.NewDecoder(r.Body).Decode(&note); err != nil {
 		s.writeError(w, http.StatusBadRequest, "Invalid JSON")
@@ -491,6 +546,11 @@ func (s *Server) handleDeleteNote(w http.ResponseWriter, r *http.Request) {
 	noteIDStr := r.PathValue("noteId")
 	noteID, ok := s.parseNoteID(w, noteIDStr)
 	if !ok {
+		return
+	}
+
+	// Validate that the account exists before deleting note
+	if !s.validateAccountExists(w, r, accountID) {
 		return
 	}
 

@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"sync"
@@ -48,13 +49,15 @@ type DeploymentController struct {
 	deployStartTime time.Time  // Track when deployment started
 	deployMu        sync.Mutex // Separate mutex for deploy operations
 	telemetry       *telemetry.Telemetry
+	accountStore    store.AccountStore
 }
 
 // NewDeploymentController creates a new deployment controller
-func NewDeploymentController(tel *telemetry.Telemetry) *DeploymentController {
+func NewDeploymentController(tel *telemetry.Telemetry, accountStore store.AccountStore) *DeploymentController {
 	return &DeploymentController{
-		status:    StatusInitial,
-		telemetry: tel,
+		status:       StatusInitial,
+		telemetry:    tel,
+		accountStore: accountStore,
 	}
 }
 
@@ -219,6 +222,25 @@ func (dc *DeploymentController) Close() error {
 	return nil
 }
 
+// getAccountMigrationStatus retrieves the migration status for an account
+func (dc *DeploymentController) getAccountMigrationStatus(ctx context.Context, accountID uuid.UUID) (bool, error) {
+	dc.mu.RLock()
+	accountStore := dc.accountStore
+	dc.mu.RUnlock()
+
+	// Get account by ID directly
+	account, err := accountStore.GetAccount(ctx, accountID)
+	if err != nil {
+		if errors.Is(err, store.ErrAccountNotFound) {
+			// Account not found, default to false
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to get account: %w", err)
+	}
+
+	return account.IsMigrating, nil
+}
+
 // NoteStore interface implementation - forwards calls to current/previous proxies
 
 // ListNotes implements NoteStore interface
@@ -227,7 +249,15 @@ func (dc *DeploymentController) ListNotes(ctx context.Context, accountID uuid.UU
 	if proxy == nil {
 		return nil, fmt.Errorf("no proxy available")
 	}
-	return proxy.ProxyClient.ListNotes(ctx, accountID)
+
+	// Get migration status for this account
+	isMigrating, err := dc.getAccountMigrationStatus(ctx, accountID)
+	if err != nil {
+		// Log error but continue with default false value
+		isMigrating = false
+	}
+
+	return proxy.ProxyClient.ListNotesWithMigration(ctx, accountID, isMigrating)
 }
 
 // GetNote implements NoteStore interface
@@ -236,7 +266,15 @@ func (dc *DeploymentController) GetNote(ctx context.Context, accountID, noteID u
 	if proxy == nil {
 		return nil, fmt.Errorf("no proxy available")
 	}
-	return proxy.ProxyClient.GetNote(ctx, accountID, noteID)
+
+	// Get migration status for this account
+	isMigrating, err := dc.getAccountMigrationStatus(ctx, accountID)
+	if err != nil {
+		// Log error but continue with default false value
+		isMigrating = false
+	}
+
+	return proxy.ProxyClient.GetNoteWithMigration(ctx, accountID, noteID, isMigrating)
 }
 
 // CreateNote implements NoteStore interface
@@ -245,7 +283,15 @@ func (dc *DeploymentController) CreateNote(ctx context.Context, accountID uuid.U
 	if proxy == nil {
 		return fmt.Errorf("no proxy available")
 	}
-	return proxy.ProxyClient.CreateNote(ctx, accountID, note)
+
+	// Get migration status for this account
+	isMigrating, err := dc.getAccountMigrationStatus(ctx, accountID)
+	if err != nil {
+		// Log error but continue with default false value
+		isMigrating = false
+	}
+
+	return proxy.ProxyClient.CreateNoteWithMigration(ctx, accountID, note, isMigrating)
 }
 
 // UpdateNote implements NoteStore interface
@@ -254,7 +300,15 @@ func (dc *DeploymentController) UpdateNote(ctx context.Context, accountID uuid.U
 	if proxy == nil {
 		return fmt.Errorf("no proxy available")
 	}
-	return proxy.ProxyClient.UpdateNote(ctx, accountID, note)
+
+	// Get migration status for this account
+	isMigrating, err := dc.getAccountMigrationStatus(ctx, accountID)
+	if err != nil {
+		// Log error but continue with default false value
+		isMigrating = false
+	}
+
+	return proxy.ProxyClient.UpdateNoteWithMigration(ctx, accountID, note, isMigrating)
 }
 
 // DeleteNote implements NoteStore interface
@@ -263,7 +317,15 @@ func (dc *DeploymentController) DeleteNote(ctx context.Context, accountID uuid.U
 	if proxy == nil {
 		return fmt.Errorf("no proxy available")
 	}
-	return proxy.ProxyClient.DeleteNote(ctx, accountID, note)
+
+	// Get migration status for this account
+	isMigrating, err := dc.getAccountMigrationStatus(ctx, accountID)
+	if err != nil {
+		// Log error but continue with default false value
+		isMigrating = false
+	}
+
+	return proxy.ProxyClient.DeleteNoteWithMigration(ctx, accountID, note, isMigrating)
 }
 
 // CountNotes implements NoteStore interface
@@ -272,7 +334,15 @@ func (dc *DeploymentController) CountNotes(ctx context.Context, accountID uuid.U
 	if proxy == nil {
 		return 0, fmt.Errorf("no proxy available")
 	}
-	return proxy.ProxyClient.CountNotes(ctx, accountID)
+
+	// Get migration status for this account
+	isMigrating, err := dc.getAccountMigrationStatus(ctx, accountID)
+	if err != nil {
+		// Log error but continue with default false value
+		isMigrating = false
+	}
+
+	return proxy.ProxyClient.CountNotesWithMigration(ctx, accountID, isMigrating)
 }
 
 // GetTotalNotes implements NoteStore interface

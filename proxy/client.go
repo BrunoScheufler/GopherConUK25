@@ -84,8 +84,8 @@ func (p *ProxyClient) makeJSONRPCRequest(ctx context.Context, method string, par
 	return json.RawMessage(resultBytes), nil
 }
 
-// ListNotes implements NoteStore interface
-func (p *ProxyClient) ListNotes(ctx context.Context, accountID uuid.UUID) (notes []uuid.UUID, err error) {
+// ListNotesWithMigration calls ListNotes with migration flag
+func (p *ProxyClient) ListNotesWithMigration(ctx context.Context, accountID uuid.UUID, isMigrating bool) (notes []uuid.UUID, err error) {
 	if p.statsCollector != nil {
 		start := time.Now()
 		defer func() {
@@ -99,7 +99,8 @@ func (p *ProxyClient) ListNotes(ctx context.Context, accountID uuid.UUID) (notes
 	}
 
 	params := map[string]interface{}{
-		"accountId": accountID,
+		"accountId":   accountID,
+		"isMigrating": isMigrating,
 	}
 
 	result, err := p.makeJSONRPCRequest(ctx, "ListNotes", params)
@@ -115,8 +116,13 @@ func (p *ProxyClient) ListNotes(ctx context.Context, accountID uuid.UUID) (notes
 	return notes, nil
 }
 
-// GetNote implements NoteStore interface
-func (p *ProxyClient) GetNote(ctx context.Context, accountID, noteID uuid.UUID) (note *store.Note, err error) {
+// ListNotes implements NoteStore interface
+func (p *ProxyClient) ListNotes(ctx context.Context, accountID uuid.UUID) ([]uuid.UUID, error) {
+	return p.ListNotesWithMigration(ctx, accountID, false)
+}
+
+// GetNoteWithMigration calls GetNote with migration flag
+func (p *ProxyClient) GetNoteWithMigration(ctx context.Context, accountID, noteID uuid.UUID, isMigrating bool) (note *store.Note, err error) {
 	if p.statsCollector != nil {
 		start := time.Now()
 		defer func() {
@@ -130,8 +136,9 @@ func (p *ProxyClient) GetNote(ctx context.Context, accountID, noteID uuid.UUID) 
 	}
 
 	params := map[string]interface{}{
-		"accountId": accountID,
-		"noteId":    noteID,
+		"accountId":   accountID,
+		"noteId":      noteID,
+		"isMigrating": isMigrating,
 	}
 
 	result, err := p.makeJSONRPCRequest(ctx, "GetNote", params)
@@ -147,8 +154,13 @@ func (p *ProxyClient) GetNote(ctx context.Context, accountID, noteID uuid.UUID) 
 	return note, nil
 }
 
-// CreateNote implements NoteStore interface
-func (p *ProxyClient) CreateNote(ctx context.Context, accountID uuid.UUID, note store.Note) (err error) {
+// GetNote implements NoteStore interface
+func (p *ProxyClient) GetNote(ctx context.Context, accountID, noteID uuid.UUID) (*store.Note, error) {
+	return p.GetNoteWithMigration(ctx, accountID, noteID, false)
+}
+
+// CreateNoteWithMigration calls CreateNote with migration flag
+func (p *ProxyClient) CreateNoteWithMigration(ctx context.Context, accountID uuid.UUID, note store.Note, isMigrating bool) (err error) {
 	if p.statsCollector != nil {
 		start := time.Now()
 		defer func() {
@@ -162,16 +174,22 @@ func (p *ProxyClient) CreateNote(ctx context.Context, accountID uuid.UUID, note 
 	}
 
 	params := map[string]interface{}{
-		"accountId": accountID,
-		"note":      note,
+		"accountId":   accountID,
+		"note":        note,
+		"isMigrating": isMigrating,
 	}
 
 	_, err = p.makeJSONRPCRequest(ctx, "CreateNote", params)
 	return err
 }
 
-// UpdateNote implements NoteStore interface
-func (p *ProxyClient) UpdateNote(ctx context.Context, accountID uuid.UUID, note store.Note) (err error) {
+// CreateNote implements NoteStore interface
+func (p *ProxyClient) CreateNote(ctx context.Context, accountID uuid.UUID, note store.Note) error {
+	return p.CreateNoteWithMigration(ctx, accountID, note, false)
+}
+
+// UpdateNoteWithMigration calls UpdateNote with migration flag
+func (p *ProxyClient) UpdateNoteWithMigration(ctx context.Context, accountID uuid.UUID, note store.Note, isMigrating bool) (err error) {
 	if p.statsCollector != nil {
 		start := time.Now()
 		defer func() {
@@ -185,16 +203,22 @@ func (p *ProxyClient) UpdateNote(ctx context.Context, accountID uuid.UUID, note 
 	}
 
 	params := map[string]interface{}{
-		"accountId": accountID,
-		"note":      note,
+		"accountId":   accountID,
+		"note":        note,
+		"isMigrating": isMigrating,
 	}
 
 	_, err = p.makeJSONRPCRequest(ctx, "UpdateNote", params)
 	return err
 }
 
-// DeleteNote implements NoteStore interface
-func (p *ProxyClient) DeleteNote(ctx context.Context, accountID uuid.UUID, note store.Note) (err error) {
+// UpdateNote implements NoteStore interface
+func (p *ProxyClient) UpdateNote(ctx context.Context, accountID uuid.UUID, note store.Note) error {
+	return p.UpdateNoteWithMigration(ctx, accountID, note, false)
+}
+
+// DeleteNoteWithMigration calls DeleteNote with migration flag
+func (p *ProxyClient) DeleteNoteWithMigration(ctx context.Context, accountID uuid.UUID, note store.Note, isMigrating bool) (err error) {
 	if p.statsCollector != nil {
 		start := time.Now()
 		defer func() {
@@ -208,18 +232,25 @@ func (p *ProxyClient) DeleteNote(ctx context.Context, accountID uuid.UUID, note 
 	}
 
 	params := map[string]interface{}{
-		"accountId": accountID,
-		"note":      note,
+		"accountId":   accountID,
+		"note":        note,
+		"isMigrating": isMigrating,
 	}
 
 	_, err = p.makeJSONRPCRequest(ctx, "DeleteNote", params)
 	return err
 }
 
-// CountNotes implements NoteStore interface
-func (p *ProxyClient) CountNotes(ctx context.Context, accountID uuid.UUID) (int, error) {
+// DeleteNote implements NoteStore interface
+func (p *ProxyClient) DeleteNote(ctx context.Context, accountID uuid.UUID, note store.Note) error {
+	return p.DeleteNoteWithMigration(ctx, accountID, note, false)
+}
+
+// CountNotesWithMigration calls CountNotes with migration flag
+func (p *ProxyClient) CountNotesWithMigration(ctx context.Context, accountID uuid.UUID, isMigrating bool) (int, error) {
 	params := map[string]interface{}{
-		"accountId": accountID,
+		"accountId":   accountID,
+		"isMigrating": isMigrating,
 	}
 
 	result, err := p.makeJSONRPCRequest(ctx, "CountNotes", params)
@@ -233,6 +264,11 @@ func (p *ProxyClient) CountNotes(ctx context.Context, accountID uuid.UUID) (int,
 	}
 
 	return count, nil
+}
+
+// CountNotes implements NoteStore interface
+func (p *ProxyClient) CountNotes(ctx context.Context, accountID uuid.UUID) (int, error) {
+	return p.CountNotesWithMigration(ctx, accountID, false)
 }
 
 // GetTotalNotes implements NoteStore interface

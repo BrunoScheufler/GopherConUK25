@@ -512,8 +512,8 @@ func TestReadAfterWriteConsistency(t *testing.T) {
 		t.Errorf("Expected 1 note in list, got %d", len(notes))
 	}
 
-	if len(notes) > 0 && notes[0].Content != note.Content {
-		t.Errorf("Listed note content mismatch: expected %q, got %q", note.Content, notes[0].Content)
+	if len(notes) > 0 && notes[0] != note.ID {
+		t.Errorf("Listed note ID mismatch: expected %q, got %q", note.ID, notes[0])
 	}
 
 	t.Log("Read-after-write consistency test passed: writes are immediately readable across connections")
@@ -593,17 +593,32 @@ func TestConcurrentWriteReadConsistency(t *testing.T) {
 			}
 
 			// Verify that all notes we can see are consistent
-			for _, note := range notes {
-				if note.Creator != account.ID {
+			for _, noteID := range notes {
+				// Get the full note to verify its content
+				fullNote, err := noteStore.GetNote(ctx, account.ID, noteID)
+				if err != nil {
 					mu.Lock()
-					errors = append(errors, fmt.Errorf("note %s has wrong creator: expected %s, got %s", note.ID, account.ID, note.Creator))
+					errors = append(errors, fmt.Errorf("failed to get note %s: %w", noteID, err))
+					mu.Unlock()
+					return
+				}
+				if fullNote == nil {
+					mu.Lock()
+					errors = append(errors, fmt.Errorf("note %s not found", noteID))
 					mu.Unlock()
 					return
 				}
 
-				if note.Content == "" {
+				if fullNote.Creator != account.ID {
 					mu.Lock()
-					errors = append(errors, fmt.Errorf("note %s has empty content", note.ID))
+					errors = append(errors, fmt.Errorf("note %s has wrong creator: expected %s, got %s", fullNote.ID, account.ID, fullNote.Creator))
+					mu.Unlock()
+					return
+				}
+
+				if fullNote.Content == "" {
+					mu.Lock()
+					errors = append(errors, fmt.Errorf("note %s has empty content", fullNote.ID))
 					mu.Unlock()
 					return
 				}
