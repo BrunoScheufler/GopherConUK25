@@ -52,20 +52,22 @@ func (p *DataProxy) ListNotes(ctx context.Context, accountDetails AccountDetails
 	// Track metrics, ignoring errors to avoid disrupting main operation
 	_ = p.statsCollector.TrackDataStoreAccess("ListNotes", time.Since(start), constants.LegacyNoteStore, telemetry.DataStoreAccessStatusSuccess)
 
-	// Retrieve notes from new store
-	start = time.Now()
-	noteIDs, err = p.newNoteStore.ListNotes(ctx, accountDetails.AccountID)
-	if err != nil {
-		_ = p.statsCollector.TrackDataStoreAccess("ListNotes", time.Since(start), constants.NewNoteStore, telemetry.DataStoreAccessStatusError)
-		return nil, fmt.Errorf("could not list notes in new store: %w", err)
-	}
+	if accountDetails.IsMigrating {
+		// Retrieve notes from new store
+		start = time.Now()
+		noteIDs, err = p.newNoteStore.ListNotes(ctx, accountDetails.AccountID)
+		if err != nil {
+			_ = p.statsCollector.TrackDataStoreAccess("ListNotes", time.Since(start), constants.NewNoteStore, telemetry.DataStoreAccessStatusError)
+			return nil, fmt.Errorf("could not list notes in new store: %w", err)
+		}
 
-	for _, noteID := range noteIDs {
-		allNoteIDs[noteID] = struct{}{}
-	}
+		for _, noteID := range noteIDs {
+			allNoteIDs[noteID] = struct{}{}
+		}
 
-	// Track metrics, ignoring errors to avoid disrupting main operation
-	_ = p.statsCollector.TrackDataStoreAccess("ListNotes", time.Since(start), constants.NewNoteStore, telemetry.DataStoreAccessStatusSuccess)
+		// Track metrics, ignoring errors to avoid disrupting main operation
+		_ = p.statsCollector.TrackDataStoreAccess("ListNotes", time.Since(start), constants.NewNoteStore, telemetry.DataStoreAccessStatusSuccess)
+	}
 
 	// Convert merged results to slice
 	result := make([]uuid.UUID, 0, len(allNoteIDs))
@@ -81,21 +83,23 @@ func (p *DataProxy) GetNote(ctx context.Context, accountDetails AccountDetails, 
 	p.lockWithContentionTracking("GetNote")
 	defer p.mu.Unlock()
 
+	if accountDetails.IsMigrating {
+		start := time.Now()
+
+		// Retrieve note from new store by default, if missing resort to legacy store
+		note, err := p.newNoteStore.GetNote(ctx, accountDetails.AccountID, noteID)
+		if err != nil {
+			_ = p.statsCollector.TrackDataStoreAccess("GetNote", time.Since(start), constants.NewNoteStore, telemetry.DataStoreAccessStatusError)
+			return nil, fmt.Errorf("could not retrieve not from new store: %w", err)
+		}
+
+		if note != nil {
+			_ = p.statsCollector.TrackDataStoreAccess("GetNote", time.Since(start), constants.NewNoteStore, telemetry.DataStoreAccessStatusSuccess)
+			return note, nil
+		}
+	}
+
 	start := time.Now()
-
-	// Retrieve note from new store by default, if missing resort to legacy store
-	note, err := p.newNoteStore.GetNote(ctx, accountDetails.AccountID, noteID)
-	if err != nil {
-		_ = p.statsCollector.TrackDataStoreAccess("GetNote", time.Since(start), constants.NewNoteStore, telemetry.DataStoreAccessStatusError)
-		return nil, fmt.Errorf("could not retrieve not from new store: %w", err)
-	}
-
-	if note != nil {
-		_ = p.statsCollector.TrackDataStoreAccess("GetNote", time.Since(start), constants.NewNoteStore, telemetry.DataStoreAccessStatusSuccess)
-		return note, nil
-	}
-
-	start = time.Now()
 	result, err := p.legacyNoteStore.GetNote(ctx, accountDetails.AccountID, noteID)
 	if err != nil {
 		_ = p.statsCollector.TrackDataStoreAccess("GetNote", time.Since(start), constants.LegacyNoteStore, telemetry.DataStoreAccessStatusError)
@@ -111,23 +115,30 @@ func (p *DataProxy) CreateNote(ctx context.Context, accountDetails AccountDetail
 	p.lockWithContentionTracking("CreateNote")
 	defer p.mu.Unlock()
 
+	storeToUse := p.legacyNoteStore
+	storeName := constants.LegacyNoteStore
+	if accountDetails.IsMigrating {
+		// Create note on new store instead of legacy store
+		storeToUse = p.newNoteStore
+		storeName = constants.NewNoteStore
+	}
+
 	start := time.Now()
 
-	// Create note on new store instead of legacy store
-	err := p.newNoteStore.CreateNote(ctx, accountDetails.AccountID, note)
+	err := storeToUse.CreateNote(ctx, accountDetails.AccountID, note)
 	if err != nil {
-		_ = p.statsCollector.TrackDataStoreAccess("CreateNote", time.Since(start), constants.NewNoteStore, telemetry.DataStoreAccessStatusError)
-		return fmt.Errorf("could not create note in new store: %w", err)
+		_ = p.statsCollector.TrackDataStoreAccess("CreateNote", time.Since(start), storeName, telemetry.DataStoreAccessStatusError)
+		return fmt.Errorf("could not create note in %q store: %w", storeName, err)
 	}
 
-	_ = p.statsCollector.TrackDataStoreAccess("CreateNote", time.Since(start), constants.NewNoteStore, telemetry.DataStoreAccessStatusSuccess)
+	_ = p.statsCollector.TrackDataStoreAccess("CreateNote", time.Since(start), storeName, telemetry.DataStoreAccessStatusSuccess)
 
 	// Report new total count
-	totalCount, err := p.newNoteStore.GetTotalNotes(ctx)
+	totalCount, err := storeToUse.GetTotalNotes(ctx)
 	if err != nil {
-		return fmt.Errorf("could not retrieve total note count in new store: %w", err)
+		return fmt.Errorf("could not retrieve total note count in %q store: %w", storeName, err)
 	}
-	p.statsCollector.TrackNoteCount(constants.NewNoteStore, totalCount)
+	p.statsCollector.TrackNoteCount(storeName, totalCount)
 	return err
 }
 
@@ -175,35 +186,45 @@ func (p *DataProxy) UpdateNote(ctx context.Context, accountDetails AccountDetail
 	//   - UpdateNote() must only accept writes if the supplied revision is newer than the existing one.
 	//   - DeleteNote() should be idempotent.
 
-	existingNote, err := p.legacyNoteStore.GetNote(ctx, accountDetails.AccountID, note.ID)
-	if err != nil {
-		_ = p.statsCollector.TrackDataStoreAccess("UpdateNote", time.Since(start), constants.NewNoteStore, telemetry.DataStoreAccessStatusError)
-		return fmt.Errorf("could not check legacy note store: %w", err)
-	}
-
-	if existingNote != nil {
-		err := p.newNoteStore.CreateNote(ctx, accountDetails.AccountID, note)
+	if accountDetails.IsMigrating {
+		existingNote, err := p.legacyNoteStore.GetNote(ctx, accountDetails.AccountID, note.ID)
 		if err != nil {
 			_ = p.statsCollector.TrackDataStoreAccess("UpdateNote", time.Since(start), constants.NewNoteStore, telemetry.DataStoreAccessStatusError)
-			return fmt.Errorf("could not create note in new store: %w", err)
+			return fmt.Errorf("could not check legacy note store: %w", err)
 		}
 
-		err = p.legacyNoteStore.DeleteNote(ctx, accountDetails.AccountID, note)
-		if err != nil {
-			_ = p.statsCollector.TrackDataStoreAccess("UpdateNote", time.Since(start), constants.NewNoteStore, telemetry.DataStoreAccessStatusError)
-			return fmt.Errorf("could not delete note from legacy store: %w", err)
+		if existingNote != nil {
+			err := p.newNoteStore.CreateNote(ctx, accountDetails.AccountID, note)
+			if err != nil {
+				_ = p.statsCollector.TrackDataStoreAccess("UpdateNote", time.Since(start), constants.NewNoteStore, telemetry.DataStoreAccessStatusError)
+				return fmt.Errorf("could not create note in new store: %w", err)
+			}
+
+			err = p.legacyNoteStore.DeleteNote(ctx, accountDetails.AccountID, note)
+			if err != nil {
+				_ = p.statsCollector.TrackDataStoreAccess("UpdateNote", time.Since(start), constants.NewNoteStore, telemetry.DataStoreAccessStatusError)
+				return fmt.Errorf("could not delete note from legacy store: %w", err)
+			}
+
+			_ = p.statsCollector.TrackDataStoreAccess("UpdateNote", time.Since(start), constants.NewNoteStore, telemetry.DataStoreAccessStatusSuccess)
+
+			// TODO: Track migrated note in a counter
+			return nil
 		}
-
-		_ = p.statsCollector.TrackDataStoreAccess("UpdateNote", time.Since(start), constants.NewNoteStore, telemetry.DataStoreAccessStatusSuccess)
-
-		// TODO: Track migrated note in a counter
-		return nil
 	}
 
-	err = p.newNoteStore.UpdateNote(ctx, accountDetails.AccountID, note)
+	// Update note in new store if migrating, legacy otherwise.
+	storeToUse := p.legacyNoteStore
+	storeName := constants.LegacyNoteStore
+	if accountDetails.IsMigrating {
+		storeToUse = p.newNoteStore
+		storeName = constants.NewNoteStore
+	}
+
+	err := storeToUse.UpdateNote(ctx, accountDetails.AccountID, note)
 
 	// Track metrics, ignoring errors to avoid disrupting main operation
-	_ = p.statsCollector.TrackDataStoreAccess("UpdateNote", time.Since(start), constants.NewNoteStore, telemetry.DataStoreAccessStatusSuccess)
+	_ = p.statsCollector.TrackDataStoreAccess("UpdateNote", time.Since(start), storeName, telemetry.DataStoreAccessStatusSuccess)
 	return err
 }
 
@@ -212,23 +233,25 @@ func (p *DataProxy) DeleteNote(ctx context.Context, accountDetails AccountDetail
 	p.lockWithContentionTracking("DeleteNote")
 	defer p.mu.Unlock()
 
-	start := time.Now()
-
 	// Delete from both legacy and new data stores.
 	//
 	// Since deletion is idempotent, we do not have to read the note to figure out which data store to delete from.
 	// We will have to check if there are any remaining notes on the legacy store before dropping it, of course.
 
-	err := p.newNoteStore.DeleteNote(ctx, accountDetails.AccountID, note)
-	if err != nil {
-		_ = p.statsCollector.TrackDataStoreAccess("DeleteNote", time.Since(start), constants.NewNoteStore, telemetry.DataStoreAccessStatusError)
-		return fmt.Errorf("could not delete note from new note store: %w", err)
+	if accountDetails.IsMigrating {
+		start := time.Now()
+
+		err := p.newNoteStore.DeleteNote(ctx, accountDetails.AccountID, note)
+		if err != nil {
+			_ = p.statsCollector.TrackDataStoreAccess("DeleteNote", time.Since(start), constants.NewNoteStore, telemetry.DataStoreAccessStatusError)
+			return fmt.Errorf("could not delete note from new note store: %w", err)
+		}
+
+		_ = p.statsCollector.TrackDataStoreAccess("DeleteNote", time.Since(start), constants.NewNoteStore, telemetry.DataStoreAccessStatusSuccess)
 	}
 
-	_ = p.statsCollector.TrackDataStoreAccess("DeleteNote", time.Since(start), constants.NewNoteStore, telemetry.DataStoreAccessStatusSuccess)
-
-	start = time.Now()
-	err = p.legacyNoteStore.DeleteNote(ctx, accountDetails.AccountID, note)
+	start := time.Now()
+	err := p.legacyNoteStore.DeleteNote(ctx, accountDetails.AccountID, note)
 	if err != nil {
 		_ = p.statsCollector.TrackDataStoreAccess("DeleteNote", time.Since(start), constants.LegacyNoteStore, telemetry.DataStoreAccessStatusError)
 		return fmt.Errorf("could not delete note from legacy store: %w", err)
@@ -243,11 +266,13 @@ func (p *DataProxy) DeleteNote(ctx context.Context, accountDetails AccountDetail
 	}
 	p.statsCollector.TrackNoteCount(constants.LegacyNoteStore, totalCount)
 
-	totalCount, err = p.newNoteStore.GetTotalNotes(ctx)
-	if err != nil {
-		return fmt.Errorf("could not retrieve total note count from new store: %w", err)
+	if accountDetails.IsMigrating {
+		totalCount, err = p.newNoteStore.GetTotalNotes(ctx)
+		if err != nil {
+			return fmt.Errorf("could not retrieve total note count from new store: %w", err)
+		}
+		p.statsCollector.TrackNoteCount(constants.NewNoteStore, totalCount)
 	}
-	p.statsCollector.TrackNoteCount(constants.NewNoteStore, totalCount)
 
 	return err
 }
@@ -271,6 +296,10 @@ func (p *DataProxy) CountNotes(ctx context.Context, accountDetails AccountDetail
 		return 0, fmt.Errorf("could not retrieve notes on legacy shard: %w", err)
 	}
 	_ = p.statsCollector.TrackDataStoreAccess("CountNotes", time.Since(start), constants.LegacyNoteStore, telemetry.DataStoreAccessStatusSuccess)
+
+	if !accountDetails.IsMigrating {
+		return legacyNotes, nil
+	}
 
 	newNotes, err := p.newNoteStore.CountNotes(ctx, accountDetails.AccountID)
 	if err != nil {
