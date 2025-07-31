@@ -914,10 +914,10 @@ func (m *Model) updateAccountsStats() {
 
 func (m *Model) adjustAccountsColumnWidths(tableWidth int) {
 	// Calculate column widths for accounts table
-	idWidth := min(12, tableWidth/5)
-	nameWidth := min(20, tableWidth/3)
-	migratingWidth := min(12, tableWidth/6)
-	noteCountWidth := min(10, tableWidth/8)
+	idWidth := 36
+	nameWidth := 30
+	migratingWidth := 12
+	noteCountWidth := 12
 
 	accountsColumns := []table.Column{
 		{Title: "ID", Width: idWidth},
