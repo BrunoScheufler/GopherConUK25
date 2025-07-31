@@ -586,17 +586,29 @@ func (m *Model) renderPage1(panelStyle lipgloss.Style, titleStyle lipgloss.Style
 	// Join API and data store panels horizontally
 	topRow := lipgloss.JoinHorizontal(lipgloss.Top, apiPanel, dataStorePanel)
 
+	// Split width for shard and consistency panels
+	shardPanelWidth := (width - 2) / 2
+	consistencyPanelWidth := width - shardPanelWidth - 2
+
 	// Render shard counts panel
-	shardPanel := panelStyle.Width(width).Height(shardHeight).Render(
+	shardPanel := panelStyle.Width(shardPanelWidth).Height(shardHeight).Render(
 		titleStyle.Render("Note Counts by Shard") + "\n" + m.renderShardCounts(),
 	)
+
+	// Render consistency misses panel
+	consistencyPanel := panelStyle.Width(consistencyPanelWidth).Height(shardHeight).Render(
+		titleStyle.Render("Consistency Misses") + "\n" + m.renderConsistencyMisses(),
+	)
+
+	// Join shard and consistency panels horizontally
+	middleRow := lipgloss.JoinHorizontal(lipgloss.Top, shardPanel, consistencyPanel)
 
 	// Render deployment panel
 	deploymentPanel := panelStyle.Width(width).Height(deploymentHeight).Render(
 		titleStyle.Render("Deployments [Press 'd' to deploy]") + "\n" + m.renderDeploymentContent(),
 	)
 
-	return lipgloss.JoinVertical(lipgloss.Left, topRow, shardPanel, deploymentPanel)
+	return lipgloss.JoinVertical(lipgloss.Left, topRow, middleRow, deploymentPanel)
 }
 
 // renderPage2 renders accounts table
@@ -1187,6 +1199,26 @@ func (m *Model) renderShardCounts() string {
 	if len(shardStrings) > 0 {
 		content.WriteString(strings.Join(shardStrings, "    "))
 	}
+
+	return content.String()
+}
+
+func (m *Model) renderConsistencyMisses() string {
+	if m.appConfig.Telemetry == nil {
+		return "No telemetry available"
+	}
+
+	stats := m.appConfig.Telemetry.GetStatsCollector().Export()
+
+	// Build the display string
+	var content strings.Builder
+	labelStyle := lipgloss.NewStyle().Foreground(m.theme.Primary)
+	countStyle := lipgloss.NewStyle().Foreground(m.theme.Warning).Bold(true)
+
+	missCount := stats.ConsistencyMisses
+	content.WriteString(fmt.Sprintf("%s: %s",
+		labelStyle.Render("Total Misses"),
+		countStyle.Render(fmt.Sprintf("%d", missCount))))
 
 	return content.String()
 }

@@ -36,6 +36,7 @@ type StatsCollector interface {
 	TrackProxyAccess(operation string, duration time.Duration, proxyID int, status ProxyAccessStatus) error
 	TrackDataStoreAccess(operation string, duration time.Duration, storeID string, status DataStoreAccessStatus) error
 	TrackNoteCount(shardID string, count int) error
+	TrackConsistencyMiss() error
 	Export() Stats
 	Import(stats Stats)
 	Stop() // Gracefully shut down the stats collector
@@ -76,10 +77,11 @@ type DataStoreStats struct {
 
 // Stats holds all collected metrics
 type Stats struct {
-	APIRequests     map[string]*APIStats       `json:"apiRequests"`
-	ProxyAccess     map[string]*ProxyStats     `json:"proxyAccess"`
-	DataStoreAccess map[string]*DataStoreStats `json:"dataStoreAccess"`
-	NoteCount       map[string]int             `json:"noteCount"`
+	APIRequests       map[string]*APIStats       `json:"apiRequests"`
+	ProxyAccess       map[string]*ProxyStats     `json:"proxyAccess"`
+	DataStoreAccess   map[string]*DataStoreStats `json:"dataStoreAccess"`
+	NoteCount         map[string]int             `json:"noteCount"`
+	ConsistencyMisses int                        `json:"consistencyMisses"`
 }
 
 // inMemoryStatsCollector implements StatsCollector interface
@@ -120,10 +122,11 @@ func NewStatsCollector(options ...StatsCollectorOption) StatsCollector {
 	ctx, cancel := context.WithCancel(context.Background())
 	collector := &inMemoryStatsCollector{
 		stats: Stats{
-			APIRequests:     make(map[string]*APIStats),
-			ProxyAccess:     make(map[string]*ProxyStats),
-			DataStoreAccess: make(map[string]*DataStoreStats),
-			NoteCount:       make(map[string]int),
+			APIRequests:       make(map[string]*APIStats),
+			ProxyAccess:       make(map[string]*ProxyStats),
+			DataStoreAccess:   make(map[string]*DataStoreStats),
+			NoteCount:         make(map[string]int),
+			ConsistencyMisses: 0,
 		},
 		ctx:    ctx,
 		cancel: cancel,
@@ -245,6 +248,14 @@ func (sc *inMemoryStatsCollector) TrackDataStoreAccess(operation string, duratio
 	)
 }
 
+func (sc *inMemoryStatsCollector) TrackConsistencyMiss() error {
+	sc.mutex.Lock()
+	defer sc.mutex.Unlock()
+
+	sc.stats.ConsistencyMisses++
+	return nil
+}
+
 func (sc *inMemoryStatsCollector) TrackNoteCount(shardID string, count int) error {
 	sc.mutex.Lock()
 	defer sc.mutex.Unlock()
@@ -260,10 +271,11 @@ func (sc *inMemoryStatsCollector) Export() Stats {
 
 	// Copy stats excluding internal fields
 	exported := Stats{
-		APIRequests:     make(map[string]*APIStats),
-		ProxyAccess:     make(map[string]*ProxyStats),
-		DataStoreAccess: make(map[string]*DataStoreStats),
-		NoteCount:       make(map[string]int),
+		APIRequests:       make(map[string]*APIStats),
+		ProxyAccess:       make(map[string]*ProxyStats),
+		DataStoreAccess:   make(map[string]*DataStoreStats),
+		NoteCount:         make(map[string]int),
+		ConsistencyMisses: sc.stats.ConsistencyMisses,
 	}
 
 	for k, v := range sc.stats.APIRequests {
@@ -373,6 +385,11 @@ func (sc *inMemoryStatsCollector) Import(stats Stats) {
 	clear(sc.stats.NoteCount)
 	for key, incoming := range stats.NoteCount {
 		sc.stats.NoteCount[key] = incoming
+	}
+
+	// Merge consistency misses
+	if stats.ConsistencyMisses > sc.stats.ConsistencyMisses {
+		sc.stats.ConsistencyMisses = stats.ConsistencyMisses
 	}
 }
 

@@ -308,6 +308,7 @@ func (al *AccountLoop) readNote() error {
 	actualHash := hashContents(note.Content)
 	if actualHash != expectedHash {
 		al.logger.Warn("CONSISTENCY ERROR: Note content mismatch detected")
+		al.telemetry.StatsCollector.TrackConsistencyMiss()
 	}
 
 	return nil
@@ -362,6 +363,7 @@ func (al *AccountLoop) listNotes() error {
 		if expectedHash, exists := al.notes[note.ID]; exists {
 			if expectedHash != serverNotes[note.ID] {
 				al.logger.Warn("CONSISTENCY ERROR: Note list content mismatch detected")
+				al.telemetry.StatsCollector.TrackConsistencyMiss()
 			}
 		}
 	}
@@ -370,8 +372,10 @@ func (al *AccountLoop) listNotes() error {
 	for noteID, expectedHash := range al.notes {
 		if actualHash, exists := serverNotes[noteID]; !exists {
 			al.logger.Warn("CONSISTENCY ERROR: Note missing from server")
+			al.telemetry.StatsCollector.TrackConsistencyMiss()
 		} else if actualHash != expectedHash {
 			al.logger.Warn("CONSISTENCY ERROR: Note server/client mismatch")
+			al.telemetry.StatsCollector.TrackConsistencyMiss()
 		}
 	}
 
