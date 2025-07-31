@@ -8,6 +8,7 @@ import (
 
 	"github.com/brunoscheufler/gopherconuk25/constants"
 	"github.com/brunoscheufler/gopherconuk25/proxy"
+	"github.com/brunoscheufler/gopherconuk25/store"
 	"github.com/brunoscheufler/gopherconuk25/telemetry"
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
@@ -35,11 +36,13 @@ type Model struct {
 	// Panel components
 	apiTable       table.Model
 	dataStoreTable table.Model
+	accountsTable  table.Model
 	logsViewport   viewport.Model
 
 	// Table column definitions for dynamic resizing
 	apiColumns       []table.Column
 	dataStoreColumns []table.Column
+	accountsColumns  []table.Column
 
 	// Help component
 	help help.Model
@@ -54,9 +57,12 @@ type Model struct {
 	theme BubbleTeaTheme
 
 	// Last update times to control refresh rates
-	lastStatsUpdate      time.Time
-	lastDeploymentUpdate time.Time
-	lastShardUpdate      time.Time
+	lastStatsUpdate    time.Time
+	lastShardUpdate    time.Time
+	lastAccountsUpdate time.Time
+
+	// Account data
+	accountsList []store.AccountStats
 }
 
 // BubbleTeaTheme defines color schemes for the bubbletea interface
@@ -103,31 +109,43 @@ var (
 
 // Key bindings
 type keyMap struct {
-	Deploy     key.Binding
-	Quit       key.Binding
-	ScrollUp   key.Binding
-	ScrollDown key.Binding
-	PageUp     key.Binding
-	PageDown   key.Binding
-	NextPage   key.Binding
-	PrevPage   key.Binding
+	page          int
+	Deploy        key.Binding
+	ToggleMigrate key.Binding
+	Quit          key.Binding
+	ScrollUp      key.Binding
+	ScrollDown    key.Binding
+	PageUp        key.Binding
+	PageDown      key.Binding
+	NextPage      key.Binding
+	PrevPage      key.Binding
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.PrevPage, k.NextPage, k.Deploy, k.Quit}
+	switch k.page {
+	case 0:
+		return []key.Binding{k.PrevPage, k.NextPage, k.Deploy, k.Quit}
+	case 1:
+		return []key.Binding{k.PrevPage, k.NextPage, k.ScrollUp, k.ScrollDown, k.ToggleMigrate, k.Quit}
+	case 2:
+		return []key.Binding{k.PrevPage, k.NextPage, k.ScrollUp, k.ScrollDown, k.PageUp, k.PageDown, k.Quit}
+	default:
+		return []key.Binding{}
+	}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
-	return [][]key.Binding{
-		{k.PrevPage, k.NextPage, k.Deploy},
-		{k.ScrollUp, k.ScrollDown, k.Quit},
-	}
+	return [][]key.Binding{k.ShortHelp()}
 }
 
 var keys = keyMap{
 	Deploy: key.NewBinding(
 		key.WithKeys("d"),
 		key.WithHelp("d", "deploy"),
+	),
+	ToggleMigrate: key.NewBinding(
+		key.WithKeys("m"),
+		key.WithHelp("m", "toggle migration"),
 	),
 	ScrollUp: key.NewBinding(
 		key.WithKeys("k", "up"),
@@ -234,10 +252,38 @@ func NewBubbleTeaModel(appConfig *AppConfig, options CLIOptions) *Model {
 		progress.WithoutPercentage(),
 	)
 
+	// Initialize accounts table
+	accountsColumns := []table.Column{
+		{Title: "ID", Width: 12},
+		{Title: "Name", Width: 20},
+		{Title: "IsMigrating", Width: 12},
+		{Title: "Note Count", Width: 10},
+	}
+
+	// Create table styles for accounts table
+	accountsTableStyles := table.DefaultStyles()
+	accountsTableStyles.Header = accountsTableStyles.Header.
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(theme.Border).
+		BorderBottom(true).
+		Bold(false).
+		Foreground(theme.Highlight)
+	accountsTableStyles.Selected = accountsTableStyles.Selected.
+		Foreground(theme.Primary).
+		Background(theme.Accent).
+		Bold(false)
+
+	accountsTable := table.New(
+		table.WithColumns(accountsColumns),
+		table.WithFocused(true),
+		table.WithHeight(10),
+		table.WithStyles(accountsTableStyles),
+	)
+
 	// Initialize paginator
 	p := paginator.New()
 	p.Type = paginator.Dots
-	p.SetTotalPages(2)
+	p.SetTotalPages(3)
 
 	return &Model{
 		appConfig:        appConfig,
@@ -246,6 +292,7 @@ func NewBubbleTeaModel(appConfig *AppConfig, options CLIOptions) *Model {
 		cancel:           cancel,
 		apiTable:         apiTable,
 		dataStoreTable:   dataStoreTable,
+		accountsTable:    accountsTable,
 		help:             helpModel,
 		progressBar:      progressModel,
 		paginator:        p,
@@ -253,6 +300,7 @@ func NewBubbleTeaModel(appConfig *AppConfig, options CLIOptions) *Model {
 		logsViewport:     viewport.New(0, 0), // Will be sized properly later
 		apiColumns:       apiColumns,
 		dataStoreColumns: dataStoreColumns,
+		accountsColumns:  accountsColumns,
 	}
 }
 
@@ -297,6 +345,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.paginator.NextPage()
 			}
+			keys.page = m.paginator.Page
 			return m, nil
 		case key.Matches(msg, keys.PrevPage):
 			// Manual wrap-around: if at first page, go to last
@@ -305,29 +354,60 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.paginator.PrevPage()
 			}
+			keys.page = m.paginator.Page
 			return m, nil
 		case key.Matches(msg, keys.ScrollUp):
-			// Only works on logs page (page 2)
 			if m.paginator.Page == 1 {
-				m.logsViewport.LineUp(1)
+				// Accounts page - move selection up
+				m.accountsTable.MoveUp(1)
+			} else if m.paginator.Page == 2 {
+				// Logs page - scroll up
+				m.logsViewport.ScrollUp(1)
 			}
 			return m, nil
 		case key.Matches(msg, keys.ScrollDown):
-			// Only works on logs page (page 2)
 			if m.paginator.Page == 1 {
-				m.logsViewport.LineDown(1)
+				// Accounts page - move selection down
+				m.accountsTable.MoveDown(1)
+			} else if m.paginator.Page == 2 {
+				// Logs page - scroll down
+				m.logsViewport.ScrollDown(1)
+			}
+			return m, nil
+		case key.Matches(msg, keys.ToggleMigrate):
+			// Toggle migration status on accounts page
+			if m.paginator.Page == 1 {
+				currentIndex := m.accountsTable.Cursor()
+				if len(m.accountsList) > 0 && currentIndex >= 0 && currentIndex < len(m.accountsList) {
+					// Update the account directly in the list
+					m.accountsList[currentIndex].Account.IsMigrating = !m.accountsList[currentIndex].Account.IsMigrating
+
+					// Update the account in the store
+					if m.appConfig.AccountStore != nil {
+						updatedAccount := m.accountsList[currentIndex].Account
+						go func() {
+							ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+							defer cancel()
+							err := m.appConfig.AccountStore.UpdateAccount(ctx, updatedAccount)
+							if err == nil {
+								// Force immediate refresh
+								m.updateAccountsStats()
+							}
+						}()
+					}
+				}
 			}
 			return m, nil
 		case key.Matches(msg, keys.PageUp):
 			// Only works on logs page (page 2)
-			if m.paginator.Page == 1 {
-				m.logsViewport.HalfViewUp()
+			if m.paginator.Page == 2 {
+				m.logsViewport.HalfPageUp()
 			}
 			return m, nil
 		case key.Matches(msg, keys.PageDown):
 			// Only works on logs page (page 2)
-			if m.paginator.Page == 1 {
-				m.logsViewport.HalfViewDown()
+			if m.paginator.Page == 2 {
+				m.logsViewport.HalfPageDown()
 			}
 			return m, nil
 		}
@@ -346,9 +426,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.updateDataStoreStats()
 		}
 
-		if now.Sub(m.lastDeploymentUpdate) >= time.Second {
-			m.lastDeploymentUpdate = now
-			m.updateDeploymentStatus()
+		if now.Sub(m.lastAccountsUpdate) >= time.Second {
+			m.lastAccountsUpdate = now
+			m.updateAccountsStats()
 		}
 
 		return m, m.tickCmd()
@@ -383,7 +463,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // View renders the interface
 func (m *Model) View() string {
 	if m.width == 0 || m.height == 0 {
-		return "Loading..."
+		return "Loading CLI..."
 	}
 
 	// Calculate layout based on screen size
@@ -411,14 +491,13 @@ func (m *Model) renderLayout() string {
 		Bold(true)
 
 	helpStyle := lipgloss.NewStyle().
-		Foreground(m.theme.Subtle).
-		Margin(1, 0, 0, 0)
+		Foreground(m.theme.Subtle)
 
 	// Calculate available space
 	helpHeight := 3
 	paginatorHeight := 2
 	availableHeight := m.height - helpHeight - paginatorHeight - 2 // Account for margins
-	availableWidth := m.width - 4                                   // Account for margins
+	availableWidth := m.width - 4                                  // Account for margins
 
 	// Render current page content
 	var content string
@@ -427,8 +506,11 @@ func (m *Model) renderLayout() string {
 		// Page 1: API requests, data store access & deployments
 		content = m.renderPage1(panelStyle, titleStyle, availableWidth, availableHeight)
 	case 1:
-		// Page 2: Logs
-		content = m.renderPage2(logsPanelStyle, titleStyle, availableWidth, availableHeight)
+		// Page 2: Accounts
+		content = m.renderPage2(panelStyle, titleStyle, availableWidth, availableHeight)
+	case 2:
+		// Page 3: Logs
+		content = m.renderPage3(logsPanelStyle, titleStyle, availableWidth, availableHeight)
 	}
 
 	// Add paginator
@@ -443,122 +525,13 @@ func (m *Model) renderLayout() string {
 	return lipgloss.JoinVertical(lipgloss.Center, content, paginator, help)
 }
 
-// renderVerticalLayout renders all panels vertically for small screens
-func (m *Model) renderVerticalLayout(panelStyle, logsPanelStyle, titleStyle, helpStyle lipgloss.Style, width, height int) string {
-	// Reserve enough space for API and data store tables, give rest to logs
-	// Tables now show 3x more rows due to success/contention/error status separation
-	minPanelHeight := 18                              // Increased from 12 to accommodate more rows
-	panelHeight := max(minPanelHeight, (height-20)/4) // Ensure minimum height
-	logsPanelHeight := height - (3 * panelHeight) - 8 // Logs take remaining space
-	panelWidth := width - 4
-	tableWidth := panelWidth - 4
-
-	// Recalculate column widths for the actual table width
-	m.adjustColumnWidths(tableWidth, tableWidth)
-
-	// Update table sizes
-	m.apiTable = table.New(table.WithColumns(m.apiColumns),
-		table.WithRows(m.apiTable.Rows()),
-		table.WithWidth(tableWidth),
-		table.WithHeight(panelHeight-6))
-	m.dataStoreTable = table.New(table.WithColumns(m.dataStoreColumns),
-		table.WithRows(m.dataStoreTable.Rows()),
-		table.WithWidth(tableWidth),
-		table.WithHeight(panelHeight-6))
-
-	// Render each panel in desired order: API requests & data store access (top), deployment (middle), logs (bottom)
-	apiPanel := panelStyle.Width(panelWidth).Height(panelHeight).Render(
-		titleStyle.Render("API Requests") + "\n" + m.apiTable.View(),
-	)
-
-	dataStorePanel := panelStyle.Width(panelWidth).Height(panelHeight).Render(
-		titleStyle.Render("Data Store Access") + "\n" + m.dataStoreTable.View(),
-	)
-
-	deploymentPanel := panelStyle.Width(panelWidth).Height(panelHeight).Render(
-		titleStyle.Render("Deployments [Press 'd' to deploy]") + "\n" + m.renderDeploymentContent(),
-	)
-
-	logsPanel := logsPanelStyle.Width(panelWidth).Height(logsPanelHeight).Render(
-		titleStyle.Render("Logs") + "\n" + m.renderLogsContent(logsPanelHeight-2),
-	)
-
-	// Stack vertically in the requested order
-	content := lipgloss.JoinVertical(
-		lipgloss.Left,
-		apiPanel,
-		dataStorePanel,
-		deploymentPanel,
-		logsPanel,
-	)
-
-	// Add help at bottom
-	help := helpStyle.Render(m.help.View(keys))
-
-	return lipgloss.JoinVertical(lipgloss.Left, content, help)
-}
-
-// renderGridLayout renders panels with API requests & data store access on top, deployment in middle, logs at bottom
-func (m *Model) renderGridLayout(panelStyle, logsPanelStyle, titleStyle, helpStyle lipgloss.Style, width, height int) string {
-	// Calculate panel dimensions - ensure tables have enough space
-	panelWidth := (width - 6) / 2                                       // Two columns with margins for top row
-	minTopPanelHeight := 18                                             // Increased from 12 to accommodate more rows with status separation
-	topPanelHeight := max(minTopPanelHeight, (height-20)/4)             // Top row gets space for content
-	middlePanelHeight := max(12, (height-20)/6)                         // Increased from 8 to accommodate proxy stats tables
-	logsPanelHeight := height - topPanelHeight - middlePanelHeight - 12 // Logs take remaining space
-	tableWidth := panelWidth - 4
-
-	// Recalculate column widths for the actual table width
-	m.adjustColumnWidths(tableWidth, tableWidth)
-
-	// Update table sizes
-	m.apiTable = table.New(table.WithColumns(m.apiColumns),
-		table.WithRows(m.apiTable.Rows()),
-		table.WithWidth(tableWidth),
-		table.WithHeight(topPanelHeight-6))
-	m.dataStoreTable = table.New(table.WithColumns(m.dataStoreColumns),
-		table.WithRows(m.dataStoreTable.Rows()),
-		table.WithWidth(tableWidth),
-		table.WithHeight(topPanelHeight-6))
-
-	// Render top row panels (API requests and Data Store Access)
-	apiPanel := panelStyle.Width(panelWidth).Height(topPanelHeight).Render(
-		titleStyle.Render("API Requests") + "\n" + m.apiTable.View(),
-	)
-
-	dataStorePanel := panelStyle.Width(panelWidth).Height(topPanelHeight).Render(
-		titleStyle.Render("Data Store Access") + "\n" + m.dataStoreTable.View(),
-	)
-
-	// Render middle deployment panel (full width)
-	deploymentPanel := panelStyle.Width(width - 2).Height(middlePanelHeight).Render(
-		titleStyle.Render("Deployments [Press 'd' to deploy]") + "\n" + m.renderDeploymentContent(),
-	)
-
-	// Create layout
-	topRow := lipgloss.JoinHorizontal(lipgloss.Top, apiPanel, dataStorePanel)
-
-	// Render logs panel
-	logsPanel := logsPanelStyle.Width(width - 2).Height(logsPanelHeight).Render(
-		titleStyle.Render("Logs") + "\n" + m.renderLogsContent(logsPanelHeight-2),
-	)
-
-	// Combine all sections
-	content := lipgloss.JoinVertical(lipgloss.Left, topRow, deploymentPanel, logsPanel)
-
-	// Add help at bottom
-	help := helpStyle.Render(m.help.View(keys))
-
-	return lipgloss.JoinVertical(lipgloss.Left, content, help)
-}
-
 // renderPage1 renders API requests, data store access and deployments
 func (m *Model) renderPage1(panelStyle lipgloss.Style, titleStyle lipgloss.Style, width, height int) string {
 	// Split height between four sections
-	topRowHeight := (height * 3) / 10  // 30% for API and data store
-	shardHeight := (height * 2) / 10   // 20% for shard counts
+	topRowHeight := (height * 3) / 10 // 30% for API and data store
+	shardHeight := (height * 1) / 10  // 10% for shard counts
 	deploymentHeight := height - topRowHeight - shardHeight - 4
-	
+
 	// Split width for top row
 	halfWidth := (width - 2) / 2
 	tableWidth := halfWidth - 4
@@ -572,7 +545,7 @@ func (m *Model) renderPage1(panelStyle lipgloss.Style, titleStyle lipgloss.Style
 		table.WithRows(m.apiTable.Rows()),
 		table.WithWidth(tableWidth),
 		table.WithHeight(tableHeight))
-	
+
 	m.dataStoreTable = table.New(table.WithColumns(m.dataStoreColumns),
 		table.WithRows(m.dataStoreTable.Rows()),
 		table.WithWidth(tableWidth),
@@ -604,8 +577,34 @@ func (m *Model) renderPage1(panelStyle lipgloss.Style, titleStyle lipgloss.Style
 	return lipgloss.JoinVertical(lipgloss.Left, topRow, shardPanel, deploymentPanel)
 }
 
-// renderPage2 renders logs
-func (m *Model) renderPage2(logsPanelStyle lipgloss.Style, titleStyle lipgloss.Style, width, height int) string {
+// renderPage2 renders accounts table
+func (m *Model) renderPage2(panelStyle lipgloss.Style, titleStyle lipgloss.Style, width, height int) string {
+	// Update accounts table dimensions
+	tableWidth := width - 4
+	tableHeight := height - 6
+
+	// Recalculate accounts column widths
+	m.adjustAccountsColumnWidths(tableWidth)
+
+	// Update accounts table size
+	m.accountsTable = table.New(
+		table.WithColumns(m.accountsColumns),
+		table.WithRows(m.accountsTable.Rows()),
+		table.WithWidth(tableWidth),
+		table.WithHeight(tableHeight),
+		table.WithFocused(true),
+	)
+
+	// Render accounts panel
+	accountsPanel := panelStyle.Width(width).Height(height).Render(
+		titleStyle.Render("Accounts") + "\n" + m.accountsTable.View(),
+	)
+
+	return accountsPanel
+}
+
+// renderPage3 renders logs
+func (m *Model) renderPage3(logsPanelStyle lipgloss.Style, titleStyle lipgloss.Style, width, height int) string {
 	// Update viewport dimensions
 	m.logsViewport.Width = width - 4
 	m.logsViewport.Height = height - 2
@@ -716,7 +715,7 @@ func (m *Model) updateAPIStats() {
 			break
 		}
 	}
-	
+
 	for _, pair := range apiStats {
 		stat := pair.stat
 		// Truncate route based on actual column width, leaving room for padding
@@ -831,8 +830,138 @@ func (m *Model) updateDataStoreStats() {
 	)
 }
 
-func (m *Model) updateDeploymentStatus() {
-	// Progress bar removed - deployment status is shown as text only
+func (m *Model) updateAccountsStats() {
+	if m.appConfig.AccountStore == nil || m.appConfig.DeploymentController == nil {
+		return
+	}
+
+	// Get all accounts
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	accounts, err := m.appConfig.AccountStore.ListAccounts(ctx)
+	if err != nil {
+		return
+	}
+
+	// Get note counts for each account
+	var accountStats []store.AccountStats
+	for _, account := range accounts {
+		noteCount, err := m.appConfig.DeploymentController.CountNotes(ctx, account.ID)
+		if err != nil {
+			noteCount = 0
+		}
+		accountStats = append(accountStats, store.AccountStats{
+			Account:   account,
+			NoteCount: noteCount,
+		})
+	}
+
+	// Check if data actually changed (simple check - compare lengths and first item)
+	dataChanged := len(accountStats) != len(m.accountsList)
+	if !dataChanged && len(accountStats) > 0 && len(m.accountsList) > 0 {
+		// Compare first account to see if data changed
+		first := accountStats[0]
+		oldFirst := m.accountsList[0]
+		dataChanged = first.Account.ID != oldFirst.Account.ID ||
+			first.Account.Name != oldFirst.Account.Name ||
+			first.Account.IsMigrating != oldFirst.Account.IsMigrating ||
+			first.NoteCount != oldFirst.NoteCount
+	}
+
+	// Update accounts list
+	m.accountsList = accountStats
+
+	// Only recreate table if data actually changed
+	if !dataChanged {
+		return
+	}
+
+	// Create table rows
+	var rows []table.Row
+	for _, accountStat := range accountStats {
+		account := accountStat.Account
+
+		// Truncate ID to fit in column
+		idStr := account.ID.String()
+		if len(idStr) > 10 {
+			idStr = idStr[:8] + "..."
+		}
+
+		// Truncate name if too long
+		name := account.Name
+		if len(name) > 18 {
+			name = name[:15] + "..."
+		}
+
+		// Migration status
+		migratingStr := "No"
+		if account.IsMigrating {
+			migratingStr = "Yes"
+		}
+
+		// No manual selection indicator needed - table handles highlighting
+
+		row := table.Row{
+			idStr,
+			name,
+			migratingStr,
+			fmt.Sprintf("%d", accountStat.NoteCount),
+		}
+		rows = append(rows, row)
+	}
+
+	// Recreate table with new data and themed styles
+	styles := table.DefaultStyles()
+	styles.Header = styles.Header.
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(m.theme.Border).
+		BorderBottom(true).
+		Bold(false).
+		Foreground(m.theme.Highlight)
+	styles.Selected = styles.Selected.
+		Foreground(m.theme.Primary).
+		Background(m.theme.Accent).
+		Bold(false)
+
+	// Ensure table cursor is valid
+	currentCursor := m.accountsTable.Cursor()
+	if currentCursor >= len(rows) {
+		currentCursor = max(0, len(rows)-1)
+	}
+
+	// Create new table
+	newTable := table.New(
+		table.WithColumns(m.accountsColumns),
+		table.WithRows(rows),
+		table.WithWidth(m.accountsTable.Width()),
+		table.WithHeight(m.accountsTable.Height()),
+		table.WithFocused(true),
+		table.WithStyles(styles),
+	)
+
+	// Set cursor position on new table
+	newTable.SetCursor(currentCursor)
+
+	// Replace the table
+	m.accountsTable = newTable
+}
+
+func (m *Model) adjustAccountsColumnWidths(tableWidth int) {
+	// Calculate column widths for accounts table
+	idWidth := min(12, tableWidth/5)
+	nameWidth := min(20, tableWidth/3)
+	migratingWidth := min(12, tableWidth/6)
+	noteCountWidth := min(10, tableWidth/8)
+
+	accountsColumns := []table.Column{
+		{Title: "ID", Width: idWidth},
+		{Title: "Name", Width: nameWidth},
+		{Title: "IsMigrating", Width: migratingWidth},
+		{Title: "Note Count", Width: noteCountWidth},
+	}
+
+	m.accountsColumns = accountsColumns
 }
 
 // Content rendering methods
@@ -1047,50 +1176,13 @@ func (m *Model) createSingleProxyStatsTable(deployment *proxy.DataProxyProcess, 
 	return tableTitle + "\n" + proxyTable.View()
 }
 
-// getProxyStatsForDeployment returns formatted proxy stats for a specific deployment
-func (m *Model) getProxyStatsForDeployment(deploymentID int, stats telemetry.Stats) string {
-	var proxyStats []*telemetry.ProxyStats
-	for _, stat := range stats.ProxyAccess {
-		if stat.ProxyID == deploymentID {
-			proxyStats = append(proxyStats, stat)
-		}
-	}
-
-	if len(proxyStats) == 0 {
-		return ""
-	}
-
-	var content strings.Builder
-	labelStyle := lipgloss.NewStyle().Foreground(m.theme.Secondary).Margin(0, 0, 0, 2)
-
-	for _, stat := range proxyStats {
-		statusIcon := "✓"
-		statusColor := m.theme.Success
-		if stat.Status != telemetry.ProxyAccessStatusSuccess {
-			statusIcon = "✗"
-			statusColor = m.theme.Error
-		}
-
-		statusStyle := lipgloss.NewStyle().Foreground(statusColor)
-
-		content.WriteString(fmt.Sprintf("%s %s %s: %d reqs, %dms p95\n",
-			labelStyle.Render(stat.Operation),
-			statusStyle.Render(statusIcon),
-			lipgloss.NewStyle().Foreground(m.theme.Primary).Render(fmt.Sprintf("%d RPM", stat.Metrics.RequestsPerMin)),
-			stat.Metrics.TotalCount,
-			stat.Metrics.DurationP95))
-	}
-
-	return content.String()
-}
-
 func (m *Model) renderShardCounts() string {
 	if m.appConfig.Telemetry == nil {
 		return "No telemetry available"
 	}
 
 	stats := m.appConfig.Telemetry.GetStatsCollector().Export()
-	
+
 	if len(stats.NoteCount) == 0 {
 		subtleStyle := lipgloss.NewStyle().Foreground(m.theme.Subtle)
 		return subtleStyle.Render("No shard data available")
@@ -1101,7 +1193,7 @@ func (m *Model) renderShardCounts() string {
 	for shardID := range stats.NoteCount {
 		shardIDs = append(shardIDs, shardID)
 	}
-	
+
 	// Sort alphabetically
 	for i := 0; i < len(shardIDs); i++ {
 		for j := i + 1; j < len(shardIDs); j++ {
@@ -1115,22 +1207,22 @@ func (m *Model) renderShardCounts() string {
 	var content strings.Builder
 	shardStyle := lipgloss.NewStyle().Foreground(m.theme.Primary)
 	countStyle := lipgloss.NewStyle().Foreground(m.theme.Success).Bold(true)
-	
+
 	// Display shards in a horizontal layout if there's enough space
 	var shardStrings []string
 	for _, shardID := range shardIDs {
 		count := stats.NoteCount[shardID]
-		shardStr := fmt.Sprintf("%s: %s", 
-			shardStyle.Render(shardID), 
+		shardStr := fmt.Sprintf("%s: %s",
+			shardStyle.Render(shardID),
 			countStyle.Render(fmt.Sprintf("%d", count)))
 		shardStrings = append(shardStrings, shardStr)
 	}
-	
+
 	// Join with appropriate spacing
 	if len(shardStrings) > 0 {
 		content.WriteString(strings.Join(shardStrings, "    "))
 	}
-	
+
 	return content.String()
 }
 
@@ -1167,7 +1259,7 @@ func (m *Model) adjustTableSizes() {
 	// With pagination, we size tables based on full available space per page
 	// Page 1: API and data store tables share top row, deployments below
 	// Page 2: Logs viewport gets full height
-	
+
 	apiTableWidth := availableWidth - 4
 	apiTableHeight := (availableHeight / 2) - 6
 	dataStoreTableWidth := availableWidth - 4
@@ -1211,12 +1303,12 @@ func (m *Model) adjustColumnWidths(apiWidth, dataStoreWidth int) {
 	totalWidth := 8
 	rpmWidth := 6
 	p95Width := 8
-	
+
 	// Calculate remaining width for Route column after fixed columns
 	fixedColumnsWidth := methodWidth + statusWidth + totalWidth + rpmWidth + p95Width
-	remainingWidth := apiWidth - fixedColumnsWidth - 10 // Account for padding/borders
+	remainingWidth := apiWidth - fixedColumnsWidth - 10    // Account for padding/borders
 	routeWidth := max(20, min(remainingWidth, apiWidth/2)) // At least 20, at most half the table width
-	
+
 	apiColumns := []table.Column{
 		{Title: "Method", Width: methodWidth},
 		{Title: "Route", Width: routeWidth},
