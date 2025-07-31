@@ -109,16 +109,17 @@ var (
 
 // Key bindings
 type keyMap struct {
-	page          int
-	Deploy        key.Binding
-	ToggleMigrate key.Binding
-	Quit          key.Binding
-	ScrollUp      key.Binding
-	ScrollDown    key.Binding
-	PageUp        key.Binding
-	PageDown      key.Binding
-	NextPage      key.Binding
-	PrevPage      key.Binding
+	page             int
+	Deploy           key.Binding
+	ToggleMigrate    key.Binding
+	ToggleMigrateAll key.Binding
+	Quit             key.Binding
+	ScrollUp         key.Binding
+	ScrollDown       key.Binding
+	PageUp           key.Binding
+	PageDown         key.Binding
+	NextPage         key.Binding
+	PrevPage         key.Binding
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
@@ -126,7 +127,7 @@ func (k keyMap) ShortHelp() []key.Binding {
 	case 0:
 		return []key.Binding{k.PrevPage, k.NextPage, k.Deploy, k.Quit}
 	case 1:
-		return []key.Binding{k.PrevPage, k.NextPage, k.ScrollUp, k.ScrollDown, k.ToggleMigrate, k.Quit}
+		return []key.Binding{k.PrevPage, k.NextPage, k.ScrollUp, k.ScrollDown, k.ToggleMigrate, k.ToggleMigrateAll, k.Quit}
 	case 2:
 		return []key.Binding{k.PrevPage, k.NextPage, k.ScrollUp, k.ScrollDown, k.PageUp, k.PageDown, k.Quit}
 	default:
@@ -146,6 +147,10 @@ var keys = keyMap{
 	ToggleMigrate: key.NewBinding(
 		key.WithKeys("m"),
 		key.WithHelp("m", "toggle migration"),
+	),
+	ToggleMigrateAll: key.NewBinding(
+		key.WithKeys("M"),
+		key.WithHelp("M", "toggle migration on all accounts"),
 	),
 	ScrollUp: key.NewBinding(
 		key.WithKeys("k", "up"),
@@ -379,21 +384,38 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.paginator.Page == 1 {
 				currentIndex := m.accountsTable.Cursor()
 				if len(m.accountsList) > 0 && currentIndex >= 0 && currentIndex < len(m.accountsList) {
-					// Update the account directly in the list
-					m.accountsList[currentIndex].Account.IsMigrating = !m.accountsList[currentIndex].Account.IsMigrating
+					currentAccount := m.accountsList[currentIndex].Account
+					currentAccount.IsMigrating = !currentAccount.IsMigrating
 
 					// Update the account in the store
 					if m.appConfig.AccountStore != nil {
-						updatedAccount := m.accountsList[currentIndex].Account
-						go func() {
-							ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-							defer cancel()
-							err := m.appConfig.AccountStore.UpdateAccount(ctx, updatedAccount)
-							if err == nil {
-								// Force immediate refresh
-								m.updateAccountsStats()
-							}
-						}()
+						ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+						defer cancel()
+						err := m.appConfig.AccountStore.UpdateAccount(ctx, currentAccount)
+						if err == nil {
+							// Force immediate refresh
+							m.updateAccountsStats()
+						}
+					}
+				}
+			}
+			return m, nil
+		case key.Matches(msg, keys.ToggleMigrateAll):
+			// Toggle migration status on accounts page
+			if m.paginator.Page == 1 {
+				if len(m.accountsList) > 0 && m.appConfig.AccountStore != nil {
+					for _, accountStats := range m.accountsList {
+						account := accountStats.Account
+						account.IsMigrating = !account.IsMigrating
+
+						ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+						defer cancel()
+						err := m.appConfig.AccountStore.UpdateAccount(ctx, account)
+						if err == nil {
+							// Force immediate refresh
+							m.updateAccountsStats()
+						}
+
 					}
 				}
 			}
@@ -587,6 +609,7 @@ func (m *Model) renderPage2(panelStyle lipgloss.Style, titleStyle lipgloss.Style
 	m.adjustAccountsColumnWidths(tableWidth)
 
 	// Update accounts table size
+	prevCursor := m.accountsTable.Cursor()
 	m.accountsTable = table.New(
 		table.WithColumns(m.accountsColumns),
 		table.WithRows(m.accountsTable.Rows()),
@@ -594,6 +617,8 @@ func (m *Model) renderPage2(panelStyle lipgloss.Style, titleStyle lipgloss.Style
 		table.WithHeight(tableHeight),
 		table.WithFocused(true),
 	)
+
+	m.accountsTable.SetCursor(prevCursor)
 
 	// Render accounts panel
 	accountsPanel := panelStyle.Width(width).Height(height).Render(
@@ -857,42 +882,15 @@ func (m *Model) updateAccountsStats() {
 		})
 	}
 
-	// Check if data actually changed (simple check - compare lengths and first item)
-	dataChanged := len(accountStats) != len(m.accountsList)
-	if !dataChanged && len(accountStats) > 0 && len(m.accountsList) > 0 {
-		// Compare first account to see if data changed
-		first := accountStats[0]
-		oldFirst := m.accountsList[0]
-		dataChanged = first.Account.ID != oldFirst.Account.ID ||
-			first.Account.Name != oldFirst.Account.Name ||
-			first.Account.IsMigrating != oldFirst.Account.IsMigrating ||
-			first.NoteCount != oldFirst.NoteCount
-	}
-
-	// Update accounts list
 	m.accountsList = accountStats
-
-	// Only recreate table if data actually changed
-	if !dataChanged {
-		return
-	}
 
 	// Create table rows
 	var rows []table.Row
 	for _, accountStat := range accountStats {
 		account := accountStat.Account
 
-		// Truncate ID to fit in column
 		idStr := account.ID.String()
-		if len(idStr) > 10 {
-			idStr = idStr[:8] + "..."
-		}
-
-		// Truncate name if too long
 		name := account.Name
-		if len(name) > 18 {
-			name = name[:15] + "..."
-		}
 
 		// Migration status
 		migratingStr := "No"
@@ -911,40 +909,7 @@ func (m *Model) updateAccountsStats() {
 		rows = append(rows, row)
 	}
 
-	// Recreate table with new data and themed styles
-	styles := table.DefaultStyles()
-	styles.Header = styles.Header.
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(m.theme.Border).
-		BorderBottom(true).
-		Bold(false).
-		Foreground(m.theme.Highlight)
-	styles.Selected = styles.Selected.
-		Foreground(m.theme.Primary).
-		Background(m.theme.Accent).
-		Bold(false)
-
-	// Ensure table cursor is valid
-	currentCursor := m.accountsTable.Cursor()
-	if currentCursor >= len(rows) {
-		currentCursor = max(0, len(rows)-1)
-	}
-
-	// Create new table
-	newTable := table.New(
-		table.WithColumns(m.accountsColumns),
-		table.WithRows(rows),
-		table.WithWidth(m.accountsTable.Width()),
-		table.WithHeight(m.accountsTable.Height()),
-		table.WithFocused(true),
-		table.WithStyles(styles),
-	)
-
-	// Set cursor position on new table
-	newTable.SetCursor(currentCursor)
-
-	// Replace the table
-	m.accountsTable = newTable
+	m.accountsTable.SetRows(rows)
 }
 
 func (m *Model) adjustAccountsColumnWidths(tableWidth int) {
