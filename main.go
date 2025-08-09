@@ -66,7 +66,20 @@ func main() {
 	notesPerAccount := flag.Int("notes-per-account", 3, "Number of notes per account for load generator")
 	requestsPerMin := flag.Int("rpm", 60, "Requests per minute for load generator")
 
+	// Clean flag
+	clean := flag.Bool("clean", false, "Delete the .data directory before starting")
+
 	flag.Parse()
+
+	// Handle clean flag if specified
+	if *clean {
+		dataDir := ".data"
+		if err := os.RemoveAll(dataDir); err != nil {
+			log.Printf("Warning: Failed to remove %s directory: %v", dataDir, err)
+		} else {
+			log.Printf("Cleaned %s directory", dataDir)
+		}
+	}
 
 	config := Config{
 		CLIMode:         *cliMode,
