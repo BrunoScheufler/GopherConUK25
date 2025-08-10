@@ -16,7 +16,6 @@ type DataProxy struct {
 	proxyID int
 	port    int
 
-	legacyNoteStore store.NoteStore
 	newNoteStore    store.NoteStore
 	secondShard     store.NoteStore
 
