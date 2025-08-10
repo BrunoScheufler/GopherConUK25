@@ -113,6 +113,7 @@ type keyMap struct {
 	Deploy           key.Binding
 	ToggleMigrate    key.Binding
 	ToggleMigrateAll key.Binding
+	CycleShard       key.Binding
 	Quit             key.Binding
 	ScrollUp         key.Binding
 	ScrollDown       key.Binding
@@ -127,7 +128,7 @@ func (k keyMap) ShortHelp() []key.Binding {
 	case 0:
 		return []key.Binding{k.PrevPage, k.NextPage, k.Deploy, k.Quit}
 	case 1:
-		return []key.Binding{k.PrevPage, k.NextPage, k.ScrollUp, k.ScrollDown, k.ToggleMigrate, k.ToggleMigrateAll, k.Quit}
+		return []key.Binding{k.PrevPage, k.NextPage, k.ScrollUp, k.ScrollDown, k.ToggleMigrate, k.ToggleMigrateAll, k.CycleShard, k.Quit}
 	case 2:
 		return []key.Binding{k.PrevPage, k.NextPage, k.ScrollUp, k.ScrollDown, k.PageUp, k.PageDown, k.Quit}
 	default:
@@ -151,6 +152,10 @@ var keys = keyMap{
 	ToggleMigrateAll: key.NewBinding(
 		key.WithKeys("M"),
 		key.WithHelp("M", "toggle migration on all accounts"),
+	),
+	CycleShard: key.NewBinding(
+		key.WithKeys("s"),
+		key.WithHelp("s", "cycle shard"),
 	),
 	ScrollUp: key.NewBinding(
 		key.WithKeys("k", "up"),
@@ -417,6 +422,47 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							m.updateAccountsStats()
 						}
 
+					}
+				}
+			}
+			return m, nil
+		case key.Matches(msg, keys.CycleShard):
+			// Cycle shard on accounts page
+			if m.paginator.Page == 1 {
+				currentIndex := m.accountsTable.Cursor()
+				if len(m.accountsList) > 0 && currentIndex >= 0 && currentIndex < len(m.accountsList) {
+					currentAccount := m.accountsList[currentIndex].Account
+					
+					// Find current shard index (-1 for null/no shard)
+					currentShardIndex := -1
+					if currentAccount.Shard != nil {
+						for i, shard := range constants.Shards {
+							if shard == *currentAccount.Shard {
+								currentShardIndex = i
+								break
+							}
+						}
+					}
+					
+					// Cycle to next shard (including null as the last option)
+					nextShardIndex := currentShardIndex + 1
+					if nextShardIndex >= len(constants.Shards) {
+						// Cycle back to null (no shard)
+						currentAccount.Shard = nil
+					} else {
+						nextShard := constants.Shards[nextShardIndex]
+						currentAccount.Shard = &nextShard
+					}
+
+					// Update the account in the store
+					if m.appConfig.AccountStore != nil {
+						ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+						defer cancel()
+						err := m.appConfig.AccountStore.UpdateAccount(ctx, currentAccount)
+						if err == nil {
+							// Force immediate refresh
+							m.updateAccountsStats()
+						}
 					}
 				}
 			}

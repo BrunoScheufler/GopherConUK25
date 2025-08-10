@@ -38,3 +38,6 @@ const (
 	LegacyNoteStore = "legacy"
 )
 
+var Shards = []string{
+	LegacyNoteStore,
+}
