@@ -20,7 +20,7 @@ type sqliteAccountStore struct {
 }
 
 func (s *sqliteAccountStore) ListAccounts(ctx context.Context) ([]Account, error) {
-	query := `SELECT id, name, is_migrating FROM accounts`
+	query := `SELECT id, name, is_migrating, shard FROM accounts`
 
 	var rows *sql.Rows
 	err := util.Retry(ctx, defaultRetryConfig, func() error {
@@ -37,7 +37,12 @@ func (s *sqliteAccountStore) ListAccounts(ctx context.Context) ([]Account, error
 	for rows.Next() {
 		var account Account
 		var idStr string
-		err := rows.Scan(&idStr, &account.Name, &account.IsMigrating)
+		var shardStr *string
+		err := rows.Scan(&idStr, &account.Name, &account.IsMigrating, &shardStr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan account: %w", err)
+		}
+		account.Shard = shardStr
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan account: %w", err)
 		}
@@ -58,14 +63,27 @@ func (s *sqliteAccountStore) ListAccounts(ctx context.Context) ([]Account, error
 }
 
 func (s *sqliteAccountStore) GetAccount(ctx context.Context, accountID uuid.UUID) (*Account, error) {
-	query := `SELECT id, name, is_migrating FROM accounts WHERE id = ?`
+	query := `SELECT id, name, is_migrating, shard FROM accounts WHERE id = ?`
 
 	var account Account
 	var idStr string
+	var shardStr *string
 	err := util.Retry(ctx, defaultRetryConfig, func() error {
 		row := s.db.QueryRowContext(ctx, query, accountID.String())
-		return row.Scan(&idStr, &account.Name, &account.IsMigrating)
+		return row.Scan(&idStr, &account.Name, &account.IsMigrating, &shardStr)
 	})
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, ErrAccountNotFound
+		}
+		return nil, fmt.Errorf("failed to scan account: %w", err)
+	}
+
+	account.ID, err = uuid.Parse(idStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse account ID: %w", err)
+	}
+	account.Shard = shardStr
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, ErrAccountNotFound
@@ -82,10 +100,10 @@ func (s *sqliteAccountStore) GetAccount(ctx context.Context, accountID uuid.UUID
 }
 
 func (s *sqliteAccountStore) CreateAccount(ctx context.Context, a Account) error {
-	query := `INSERT INTO accounts (id, name, is_migrating) VALUES (?, ?, ?)`
+	query := `INSERT INTO accounts (id, name, is_migrating, shard) VALUES (?, ?, ?, ?)`
 
 	err := util.Retry(ctx, defaultRetryConfig, func() error {
-		_, execErr := s.db.ExecContext(ctx, query, a.ID.String(), a.Name, a.IsMigrating)
+		_, execErr := s.db.ExecContext(ctx, query, a.ID.String(), a.Name, a.IsMigrating, a.Shard)
 		return execErr
 	})
 	if err != nil {
@@ -95,12 +113,12 @@ func (s *sqliteAccountStore) CreateAccount(ctx context.Context, a Account) error
 }
 
 func (s *sqliteAccountStore) UpdateAccount(ctx context.Context, a Account) error {
-	query := `UPDATE accounts SET name = ?, is_migrating = ? WHERE id = ?`
+	query := `UPDATE accounts SET name = ?, is_migrating = ?, shard = ? WHERE id = ?`
 
 	var result sql.Result
 	err := util.Retry(ctx, defaultRetryConfig, func() error {
 		var execErr error
-		result, execErr = s.db.ExecContext(ctx, query, a.Name, a.IsMigrating, a.ID.String())
+		result, execErr = s.db.ExecContext(ctx, query, a.Name, a.IsMigrating, a.Shard, a.ID.String())
 		return execErr
 	})
 	if err != nil {
@@ -382,7 +400,8 @@ func createAccountsTable(db *sql.DB) error {
 	CREATE TABLE IF NOT EXISTS accounts (
 		id TEXT PRIMARY KEY,
 		name TEXT NOT NULL,
-		is_migrating BOOLEAN NOT NULL DEFAULT 0
+		is_migrating BOOLEAN NOT NULL DEFAULT 0,
+		shard TEXT
 	);`
 
 	_, err := db.Exec(query)

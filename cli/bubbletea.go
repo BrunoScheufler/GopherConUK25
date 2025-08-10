@@ -262,6 +262,7 @@ func NewBubbleTeaModel(appConfig *AppConfig, options CLIOptions) *Model {
 		{Title: "ID", Width: 12},
 		{Title: "Name", Width: 20},
 		{Title: "IsMigrating", Width: 12},
+		{Title: "Shard", Width: 10},
 		{Title: "Note Count", Width: 10},
 	}
 
@@ -912,10 +913,17 @@ func (m *Model) updateAccountsStats() {
 
 		// No manual selection indicator needed - table handles highlighting
 
+		// Shard value
+		shardStr := "None"
+		if account.Shard != nil {
+			shardStr = *account.Shard
+		}
+
 		row := table.Row{
 			idStr,
 			name,
 			migratingStr,
+			shardStr,
 			fmt.Sprintf("%d", accountStat.NoteCount),
 		}
 		rows = append(rows, row)
@@ -927,14 +935,16 @@ func (m *Model) updateAccountsStats() {
 func (m *Model) adjustAccountsColumnWidths(tableWidth int) {
 	// Calculate column widths for accounts table
 	idWidth := 36
-	nameWidth := 30
+	nameWidth := 25
 	migratingWidth := 12
+	shardWidth := 10
 	noteCountWidth := 12
 
 	accountsColumns := []table.Column{
 		{Title: "ID", Width: idWidth},
 		{Title: "Name", Width: nameWidth},
 		{Title: "IsMigrating", Width: migratingWidth},
+		{Title: "Shard", Width: shardWidth},
 		{Title: "Note Count", Width: noteCountWidth},
 	}
 

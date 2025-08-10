@@ -28,6 +28,7 @@ type JSONRPCResponse struct {
 	ID     int         `json:"id"`
 }
 
+
 // startServer starts the HTTP server and handles JSON RPC requests
 func (p *DataProxy) startServer(ctx context.Context) error {
 	mux := http.NewServeMux()
@@ -105,70 +106,64 @@ func (p *DataProxy) handleMethod(ctx context.Context, method string, params any)
 	switch method {
 	case "ListNotes":
 		var args struct {
-			AccountID   uuid.UUID `json:"accountId"`
-			IsMigrating bool      `json:"isMigrating"`
+			AccountDetails AccountDetails `json:"accountDetails"`
 		}
 		if err := p.unmarshalParams(params, &args); err != nil {
 			return nil, err
 		}
-		return p.ListNotesWithMigration(ctx, args.AccountID, args.IsMigrating)
+		return p.ListNotesWithMigration(ctx, args.AccountDetails)
 
 	case "GetNote":
 		var args struct {
-			AccountID   uuid.UUID `json:"accountId"`
-			NoteID      uuid.UUID `json:"noteId"`
-			IsMigrating bool      `json:"isMigrating"`
+			AccountDetails AccountDetails `json:"accountDetails"`
+			NoteID         uuid.UUID      `json:"noteId"`
 		}
 		if err := p.unmarshalParams(params, &args); err != nil {
 			return nil, err
 		}
-		return p.GetNoteWithMigration(ctx, args.AccountID, args.NoteID, args.IsMigrating)
+		return p.GetNoteWithMigration(ctx, args.AccountDetails, args.NoteID)
 
 	case "CreateNote":
 		var args struct {
-			AccountID   uuid.UUID  `json:"accountId"`
-			Note        store.Note `json:"note"`
-			IsMigrating bool       `json:"isMigrating"`
+			AccountDetails AccountDetails `json:"accountDetails"`
+			Note           store.Note     `json:"note"`
 		}
 		if err := p.unmarshalParams(params, &args); err != nil {
 			return nil, err
 		}
-		err := p.CreateNoteWithMigration(ctx, args.AccountID, args.Note, args.IsMigrating)
+		err := p.CreateNoteWithMigration(ctx, args.AccountDetails, args.Note)
 		return nil, err
 
 	case "UpdateNote":
 		var args struct {
-			AccountID   uuid.UUID  `json:"accountId"`
-			Note        store.Note `json:"note"`
-			IsMigrating bool       `json:"isMigrating"`
+			AccountDetails AccountDetails `json:"accountDetails"`
+			Note           store.Note     `json:"note"`
 		}
 		if err := p.unmarshalParams(params, &args); err != nil {
 			return nil, err
 		}
-		err := p.UpdateNoteWithMigration(ctx, args.AccountID, args.Note, args.IsMigrating)
+		err := p.UpdateNoteWithMigration(ctx, args.AccountDetails, args.Note)
 		return nil, err
 
 	case "DeleteNote":
 		var args struct {
-			AccountID   uuid.UUID  `json:"accountId"`
-			Note        store.Note `json:"note"`
-			IsMigrating bool       `json:"isMigrating"`
+			AccountDetails AccountDetails `json:"accountDetails"`
+			Note           store.Note     `json:"note"`
 		}
 		if err := p.unmarshalParams(params, &args); err != nil {
 			return nil, err
 		}
-		err := p.DeleteNoteWithMigration(ctx, args.AccountID, args.Note, args.IsMigrating)
+		err := p.DeleteNoteWithMigration(ctx, args.AccountDetails, args.Note)
 		return nil, err
 
 	case "CountNotes":
 		var args struct {
-			AccountID   uuid.UUID `json:"accountId"`
-			IsMigrating bool      `json:"isMigrating"`
+			AccountDetails AccountDetails `json:"accountDetails"`
 		}
 		if err := p.unmarshalParams(params, &args); err != nil {
 			return nil, err
 		}
-		return p.CountNotesWithMigration(ctx, args.AccountID, args.IsMigrating)
+		return p.CountNotesWithMigration(ctx, args.AccountDetails)
 
 	case "GetTotalNotes":
 		return p.GetTotalNotes(ctx)

@@ -595,7 +595,7 @@ func TestConcurrentWriteReadConsistency(t *testing.T) {
 			// Verify that all notes we can see are consistent
 			for _, noteID := range notes {
 				// Get the full note to verify its content
-				fullNote, err := noteStore.GetNote(ctx, account.ID, noteID)
+				fullNote, err := noteStore2.GetNote(ctx, account.ID, noteID)
 				if err != nil {
 					mu.Lock()
 					errors = append(errors, fmt.Errorf("failed to get note %s: %w", noteID, err))

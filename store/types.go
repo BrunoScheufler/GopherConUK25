@@ -13,6 +13,7 @@ type Account struct {
 	ID          uuid.UUID `json:"id"`
 	Name        string    `json:"name"`
 	IsMigrating bool      `json:"isMigrating"`
+	Shard       *string   `json:"shard,omitempty"`
 }
 
 type Note struct {

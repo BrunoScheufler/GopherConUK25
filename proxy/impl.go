@@ -25,20 +25,20 @@ func (p *DataProxy) init() error {
 
 // ListNotes implements NoteStore interface with locking
 func (p *DataProxy) ListNotes(ctx context.Context, accountID uuid.UUID) ([]uuid.UUID, error) {
-	return p.ListNotesWithMigration(ctx, accountID, false)
+	return p.ListNotesWithMigration(ctx, AccountDetails{AccountID: accountID, IsMigrating: false})
 }
 
-// ListNotesWithMigration lists notes with migration flag consideration
-func (p *DataProxy) ListNotesWithMigration(ctx context.Context, accountID uuid.UUID, isMigrating bool) ([]uuid.UUID, error) {
+// ListNotesWithMigration lists notes with account details consideration
+func (p *DataProxy) ListNotesWithMigration(ctx context.Context, accountDetails AccountDetails) ([]uuid.UUID, error) {
 	p.lockWithContentionTracking("ListNotes")
 	defer p.mu.Unlock()
 
-	// TODO: Use isMigrating flag to conditionally run migration logic
+	// TODO: Use accountDetails to conditionally run migration logic and shard routing
 	// For now, this is a placeholder that maintains existing behavior
-	_ = isMigrating
+	_ = accountDetails
 
 	start := time.Now()
-	result, err := p.legacyNoteStore.ListNotes(ctx, accountID)
+	result, err := p.legacyNoteStore.ListNotes(ctx, accountDetails.AccountID)
 	status := telemetry.DataStoreAccessStatusSuccess
 	if err != nil {
 		status = telemetry.DataStoreAccessStatusError
@@ -50,20 +50,20 @@ func (p *DataProxy) ListNotesWithMigration(ctx context.Context, accountID uuid.U
 
 // GetNote implements NoteStore interface with locking
 func (p *DataProxy) GetNote(ctx context.Context, accountID, noteID uuid.UUID) (*store.Note, error) {
-	return p.GetNoteWithMigration(ctx, accountID, noteID, false)
+	return p.GetNoteWithMigration(ctx, AccountDetails{AccountID: accountID, IsMigrating: false}, noteID)
 }
 
-// GetNoteWithMigration gets a note with migration flag consideration
-func (p *DataProxy) GetNoteWithMigration(ctx context.Context, accountID, noteID uuid.UUID, isMigrating bool) (*store.Note, error) {
+// GetNoteWithMigration gets a note with account details consideration
+func (p *DataProxy) GetNoteWithMigration(ctx context.Context, accountDetails AccountDetails, noteID uuid.UUID) (*store.Note, error) {
 	p.lockWithContentionTracking("GetNote")
 	defer p.mu.Unlock()
 
-	// TODO: Use isMigrating flag to conditionally run migration logic
+	// TODO: Use accountDetails to conditionally run migration logic and shard routing
 	// For now, this is a placeholder that maintains existing behavior
-	_ = isMigrating
+	_ = accountDetails
 
 	start := time.Now()
-	result, err := p.legacyNoteStore.GetNote(ctx, accountID, noteID)
+	result, err := p.legacyNoteStore.GetNote(ctx, accountDetails.AccountID, noteID)
 	status := telemetry.DataStoreAccessStatusSuccess
 	if err != nil {
 		status = telemetry.DataStoreAccessStatusError
@@ -75,20 +75,20 @@ func (p *DataProxy) GetNoteWithMigration(ctx context.Context, accountID, noteID 
 
 // CreateNote implements NoteStore interface with locking
 func (p *DataProxy) CreateNote(ctx context.Context, accountID uuid.UUID, note store.Note) error {
-	return p.CreateNoteWithMigration(ctx, accountID, note, false)
+	return p.CreateNoteWithMigration(ctx, AccountDetails{AccountID: accountID, IsMigrating: false}, note)
 }
 
-// CreateNoteWithMigration creates a note with migration flag consideration
-func (p *DataProxy) CreateNoteWithMigration(ctx context.Context, accountID uuid.UUID, note store.Note, isMigrating bool) error {
+// CreateNoteWithMigration creates a note with account details consideration
+func (p *DataProxy) CreateNoteWithMigration(ctx context.Context, accountDetails AccountDetails, note store.Note) error {
 	p.lockWithContentionTracking("CreateNote")
 	defer p.mu.Unlock()
 
-	// TODO: Use isMigrating flag to conditionally run migration logic
+	// TODO: Use accountDetails to conditionally run migration logic and shard routing
 	// For now, this is a placeholder that maintains existing behavior
-	_ = isMigrating
+	_ = accountDetails
 
 	start := time.Now()
-	err := p.legacyNoteStore.CreateNote(ctx, accountID, note)
+	err := p.legacyNoteStore.CreateNote(ctx, accountDetails.AccountID, note)
 	status := telemetry.DataStoreAccessStatusSuccess
 	if err != nil {
 		status = telemetry.DataStoreAccessStatusError
@@ -107,20 +107,20 @@ func (p *DataProxy) CreateNoteWithMigration(ctx context.Context, accountID uuid.
 
 // UpdateNote implements NoteStore interface with locking
 func (p *DataProxy) UpdateNote(ctx context.Context, accountID uuid.UUID, note store.Note) error {
-	return p.UpdateNoteWithMigration(ctx, accountID, note, false)
+	return p.UpdateNoteWithMigration(ctx, AccountDetails{AccountID: accountID, IsMigrating: false}, note)
 }
 
-// UpdateNoteWithMigration updates a note with migration flag consideration
-func (p *DataProxy) UpdateNoteWithMigration(ctx context.Context, accountID uuid.UUID, note store.Note, isMigrating bool) error {
+// UpdateNoteWithMigration updates a note with account details consideration
+func (p *DataProxy) UpdateNoteWithMigration(ctx context.Context, accountDetails AccountDetails, note store.Note) error {
 	p.lockWithContentionTracking("UpdateNote")
 	defer p.mu.Unlock()
 
-	// TODO: Use isMigrating flag to conditionally run migration logic
+	// TODO: Use accountDetails to conditionally run migration logic and shard routing
 	// For now, this is a placeholder that maintains existing behavior
-	_ = isMigrating
+	_ = accountDetails
 
 	start := time.Now()
-	err := p.legacyNoteStore.UpdateNote(ctx, accountID, note)
+	err := p.legacyNoteStore.UpdateNote(ctx, accountDetails.AccountID, note)
 	status := telemetry.DataStoreAccessStatusSuccess
 	if err != nil {
 		status = telemetry.DataStoreAccessStatusError
@@ -132,20 +132,20 @@ func (p *DataProxy) UpdateNoteWithMigration(ctx context.Context, accountID uuid.
 
 // DeleteNote implements NoteStore interface with locking
 func (p *DataProxy) DeleteNote(ctx context.Context, accountID uuid.UUID, note store.Note) error {
-	return p.DeleteNoteWithMigration(ctx, accountID, note, false)
+	return p.DeleteNoteWithMigration(ctx, AccountDetails{AccountID: accountID, IsMigrating: false}, note)
 }
 
-// DeleteNoteWithMigration deletes a note with migration flag consideration
-func (p *DataProxy) DeleteNoteWithMigration(ctx context.Context, accountID uuid.UUID, note store.Note, isMigrating bool) error {
+// DeleteNoteWithMigration deletes a note with account details consideration
+func (p *DataProxy) DeleteNoteWithMigration(ctx context.Context, accountDetails AccountDetails, note store.Note) error {
 	p.lockWithContentionTracking("DeleteNote")
 	defer p.mu.Unlock()
 
-	// TODO: Use isMigrating flag to conditionally run migration logic
+	// TODO: Use accountDetails to conditionally run migration logic and shard routing
 	// For now, this is a placeholder that maintains existing behavior
-	_ = isMigrating
+	_ = accountDetails
 
 	start := time.Now()
-	err := p.legacyNoteStore.DeleteNote(ctx, accountID, note)
+	err := p.legacyNoteStore.DeleteNote(ctx, accountDetails.AccountID, note)
 	status := telemetry.DataStoreAccessStatusSuccess
 	if err != nil {
 		status = telemetry.DataStoreAccessStatusError
@@ -165,19 +165,19 @@ func (p *DataProxy) DeleteNoteWithMigration(ctx context.Context, accountID uuid.
 
 // CountNotes implements NoteStore interface with locking
 func (p *DataProxy) CountNotes(ctx context.Context, accountID uuid.UUID) (int, error) {
-	return p.CountNotesWithMigration(ctx, accountID, false)
+	return p.CountNotesWithMigration(ctx, AccountDetails{AccountID: accountID, IsMigrating: false})
 }
 
-// CountNotesWithMigration counts notes with migration flag consideration
-func (p *DataProxy) CountNotesWithMigration(ctx context.Context, accountID uuid.UUID, isMigrating bool) (int, error) {
+// CountNotesWithMigration counts notes with account details consideration
+func (p *DataProxy) CountNotesWithMigration(ctx context.Context, accountDetails AccountDetails) (int, error) {
 	p.lockWithContentionTracking("CountNotes")
 	defer p.mu.Unlock()
 
-	// TODO: Use isMigrating flag to conditionally run migration logic
+	// TODO: Use accountDetails to conditionally run migration logic and shard routing
 	// For now, this is a placeholder that maintains existing behavior
-	_ = isMigrating
+	_ = accountDetails
 
-	return p.legacyNoteStore.CountNotes(ctx, accountID)
+	return p.legacyNoteStore.CountNotes(ctx, accountDetails.AccountID)
 }
 
 // GetTotalNotes implements NoteStore interface with locking
