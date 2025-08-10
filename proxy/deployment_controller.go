@@ -525,16 +525,10 @@ func (dc *DeploymentController) restartProxy(proxy *DataProxyProcess) error {
 	}
 	time.Sleep(backoffDuration)
 
-	// Start the proxy process using shared function
-	process, proxyClient, err := startProxyProcess(proxy.ID, proxy.Port, dc.telemetry.GetStatsCollector(), proxy.LogCapture)
-	if err != nil {
+	// Start the proxy process using existing binary (no rebuild for restarts)
+	if err := proxy.start(dc.telemetry.GetStatsCollector()); err != nil {
 		return fmt.Errorf("failed to restart proxy process: %w", err)
 	}
-
-	// Update the proxy with new process and client
-	proxy.Process = process
-	proxy.ProxyClient = proxyClient
-	proxy.LaunchedAt = time.Now()
 
 	return nil
 }

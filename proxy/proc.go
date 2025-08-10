@@ -23,7 +23,8 @@ type DataProxyProcess struct {
 	ProxyClient  *ProxyClient
 	LaunchedAt   time.Time
 	RestartCount int
-	Port         int // Store port for restart purposes
+	Port         int    // Store port for restart purposes
+	binaryPath   string // Path to the built binary for restarts (private)
 }
 
 // freePort returns a free port on the system
@@ -38,12 +39,12 @@ func freePort() (int, error) {
 	return addr.Port, nil
 }
 
-// startProxyProcess starts a proxy process and waits for it to be ready
-func startProxyProcess(id int, port int, statsCollector telemetry.StatsCollector, logCapture *telemetry.LogCapture) (*os.Process, *ProxyClient, error) {
-	// Step 1: Build to temporary location
+// buildProxyBinary builds a fresh proxy binary to a temporary location
+func buildProxyBinary() (string, error) {
+	// Create temporary directory
 	tmpDir, err := ioutil.TempDir("", "proxy-build-")
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create temp directory: %w", err)
+		return "", fmt.Errorf("failed to create temp directory: %w", err)
 	}
 	
 	binaryPath := filepath.Join(tmpDir, "proxy")
@@ -52,7 +53,7 @@ func startProxyProcess(id int, port int, statsCollector telemetry.StatsCollector
 	workDir, err := os.Getwd()
 	if err != nil {
 		os.RemoveAll(tmpDir)
-		return nil, nil, fmt.Errorf("failed to get working directory: %w", err)
+		return "", fmt.Errorf("failed to get working directory: %w", err)
 	}
 	
 	// Build the binary
@@ -60,45 +61,49 @@ func startProxyProcess(id int, port int, statsCollector telemetry.StatsCollector
 	buildCmd.Dir = workDir
 	if err := buildCmd.Run(); err != nil {
 		os.RemoveAll(tmpDir)
-		return nil, nil, fmt.Errorf("failed to build proxy binary: %w", err)
+		return "", fmt.Errorf("failed to build proxy binary: %w", err)
 	}
 	
-	// Step 2: Run the binary directly
+	return binaryPath, nil
+}
+
+// start starts the proxy process using the stored binary path and waits for it to be ready
+func (dpp *DataProxyProcess) start(statsCollector telemetry.StatsCollector) error {
+	// Run the binary directly
 	cmd := exec.Command(
-		binaryPath,
+		dpp.binaryPath,
 		"--proxy",
-		"--proxy-port", fmt.Sprintf("%d", port),
-		"--proxy-id", fmt.Sprintf("%d", id),
+		"--proxy-port", fmt.Sprintf("%d", dpp.Port),
+		"--proxy-id", fmt.Sprintf("%d", dpp.ID),
 	)
+	
+	// Get current working directory for process context
+	workDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get working directory: %w", err)
+	}
 	cmd.Dir = workDir
 
 	// Pipe stdout and stderr to log capture
-	cmd.Stdout = logCapture
-	cmd.Stderr = logCapture
+	cmd.Stdout = dpp.LogCapture
+	cmd.Stderr = dpp.LogCapture
 
 	// Start the process
 	if err := cmd.Start(); err != nil {
-		os.RemoveAll(tmpDir)
-		return nil, nil, fmt.Errorf("failed to start proxy process: %w", err)
+		return fmt.Errorf("failed to start proxy process: %w", err)
 	}
 
-	// Clean up temp directory immediately after starting - binary is already loaded
-	defer os.RemoveAll(tmpDir)
-
-	// Create proxy client
-	baseURL := fmt.Sprintf("http://localhost:%d", port)
-	proxyClient := NewProxyClient(id, baseURL, statsCollector)
-
-	// Create temporary proxy process for health checking
-	tempProxy := &DataProxyProcess{
-		Process:     cmd.Process,
-		ProxyClient: proxyClient,
-	}
+	// Update process and create proxy client
+	dpp.Process = cmd.Process
+	dpp.LaunchedAt = time.Now()
+	
+	baseURL := fmt.Sprintf("http://localhost:%d", dpp.Port)
+	dpp.ProxyClient = NewProxyClient(dpp.ID, baseURL, statsCollector)
 
 	// Wait for proxy to be ready using shared health check
 	ready := false
 	for i := 0; i < 10; i++ {
-		if tempProxy.healthCheck(1 * time.Second) {
+		if dpp.healthCheck(1 * time.Second) {
 			ready = true
 			break
 		}
@@ -106,11 +111,12 @@ func startProxyProcess(id int, port int, statsCollector telemetry.StatsCollector
 	}
 
 	if !ready {
-		cmd.Process.Kill()
-		return nil, nil, fmt.Errorf("proxy failed to become ready after 10 attempts")
+		dpp.Process.Kill()
+		dpp.Process = nil
+		return fmt.Errorf("proxy failed to become ready after 10 attempts")
 	}
 
-	return cmd.Process, proxyClient, nil
+	return nil
 }
 
 // LaunchDataProxy starts a child process running a data proxy
@@ -121,8 +127,8 @@ func LaunchDataProxy(id int, statsCollector telemetry.StatsCollector, logCapture
 		return nil, fmt.Errorf("failed to get free port: %w", err)
 	}
 
-	// Start the proxy process and wait for readiness
-	process, proxyClient, err := startProxyProcess(id, port, statsCollector, logCapture)
+	// Build fresh binary for new deployment
+	binaryPath, err := buildProxyBinary()
 	if err != nil {
 		return nil, err
 	}
@@ -130,12 +136,15 @@ func LaunchDataProxy(id int, statsCollector telemetry.StatsCollector, logCapture
 	// Create the data proxy process
 	dataProxyProcess := &DataProxyProcess{
 		ID:           id,
-		Process:      process,
 		LogCapture:   logCapture,
-		ProxyClient:  proxyClient,
-		LaunchedAt:   time.Now(),
 		RestartCount: 0,
 		Port:         port,
+		binaryPath:   binaryPath,
+	}
+
+	// Start the proxy process and wait for readiness
+	if err := dataProxyProcess.start(statsCollector); err != nil {
+		return nil, err
 	}
 
 	return dataProxyProcess, nil
@@ -143,6 +152,15 @@ func LaunchDataProxy(id int, statsCollector telemetry.StatsCollector, logCapture
 
 // Shutdown sends a SIGTERM signal to the proxy process
 func (dpp *DataProxyProcess) Shutdown() error {
+	// Clean up binary directory when shutting down
+	defer func() {
+		if dpp.binaryPath != "" {
+			// Remove the entire temp directory containing the binary
+			tmpDir := filepath.Dir(dpp.binaryPath)
+			os.RemoveAll(tmpDir)
+		}
+	}()
+
 	if dpp.Process == nil {
 		return nil
 	}
