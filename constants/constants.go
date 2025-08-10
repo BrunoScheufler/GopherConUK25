@@ -35,9 +35,18 @@ const (
 
 // Note store identifier constants
 const (
+	// LegacyNoteStore represents the initial note store
 	LegacyNoteStore = "legacy"
+
+	// NewNoteStore represents the note store for the first exercise
+	NewNoteStore = "new"
+
+	// SecondShardStore represents the note store for the second exercise
+	SecondShardStore = "second"
 )
 
+// Shards lists the available shards for cycling through in the UI. This does not include the legacy store.
 var Shards = []string{
-	LegacyNoteStore,
+	NewNoteStore,
+	SecondShardStore,
 }
