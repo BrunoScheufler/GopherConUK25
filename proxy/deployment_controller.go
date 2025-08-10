@@ -50,6 +50,7 @@ type DeploymentController struct {
 	deployMu        sync.Mutex // Separate mutex for deploy operations
 	telemetry       *telemetry.Telemetry
 	accountStore    store.AccountStore
+	monitorCancel   context.CancelFunc // Cancel function for monitoring goroutine
 }
 
 // NewDeploymentController creates a new deployment controller
@@ -150,6 +151,9 @@ func (dc *DeploymentController) Deploy() error {
 		dc.current = dataProxyProcess
 		dc.mu.Unlock()
 
+		// Start monitoring goroutine for this initial deployment
+		dc.startMonitoring()
+
 		dc.setStatus(StatusReady)
 		return nil
 	}
@@ -206,6 +210,11 @@ func (dc *DeploymentController) Deploy() error {
 
 // Close deployment child proceses and cleans up resources.
 func (dc *DeploymentController) Close() error {
+	// Stop monitoring first
+	if dc.monitorCancel != nil {
+		dc.monitorCancel()
+	}
+
 	dc.mu.Lock()
 	current := dc.current
 	previous := dc.previous
@@ -385,23 +394,18 @@ func (dc *DeploymentController) selectProxy() *DataProxyProcess {
 	return dc.previous
 }
 
-// waitForProxyReady waits for a proxy to be ready using the Ready RPC method
+// waitForProxyReady waits for a proxy to be ready using shared health check
 func (dc *DeploymentController) waitForProxyReady(proxy *DataProxyProcess) error {
 	if proxy == nil {
 		return fmt.Errorf("proxy is nil")
 	}
 
-	// Send up to 10 ready requests with 1s delay as per DATA_PROXY.md
+	// Use shared health check method with up to 10 attempts
 	maxAttempts := 10
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-
-		if err := proxy.ProxyClient.Ready(ctx); err == nil {
-			cancel()
+		if proxy.healthCheck(1 * time.Second) {
 			return nil
 		}
-
-		cancel()
 
 		// Don't wait after the last attempt
 		if attempt < maxAttempts-1 {
@@ -455,4 +459,96 @@ func (dc *DeploymentController) collectProxyStats() {
 			telemetry.GetStatsCollector().Import(stats)
 		}
 	}
+}
+
+// startMonitoring starts the process monitoring goroutine
+func (dc *DeploymentController) startMonitoring() {
+	// Cancel any existing monitoring
+	if dc.monitorCancel != nil {
+		dc.monitorCancel()
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	dc.monitorCancel = cancel
+
+	go dc.monitorProcesses(ctx)
+}
+
+// monitorProcesses monitors proxy processes and restarts them if they crash
+func (dc *DeploymentController) monitorProcesses(ctx context.Context) {
+	ticker := time.NewTicker(constants.ProcessMonitorInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			dc.checkAndRestartProcesses()
+		}
+	}
+}
+
+// checkAndRestartProcesses checks each proxy process and restarts if needed
+func (dc *DeploymentController) checkAndRestartProcesses() {
+	dc.mu.Lock()
+	defer dc.mu.Unlock()
+
+	// Only check and restart current proxy - ignore previous proxy crashes
+	if dc.current != nil && !dc.current.IsRunning() {
+		if dc.current.RestartCount < constants.MaxRestartAttempts {
+			fmt.Fprintf(dc.telemetry.LogCapture, "Current proxy v%d crashed, attempting restart (attempt %d/%d)\n", 
+				dc.current.ID, dc.current.RestartCount+1, constants.MaxRestartAttempts)
+			
+			if err := dc.restartProxy(dc.current); err != nil {
+				fmt.Fprintf(dc.telemetry.LogCapture, "Failed to restart current proxy v%d: %v\n", dc.current.ID, err)
+			} else {
+				fmt.Fprintf(dc.telemetry.LogCapture, "Successfully restarted current proxy v%d\n", dc.current.ID)
+			}
+		} else {
+			fmt.Fprintf(dc.telemetry.LogCapture, "Current proxy v%d exceeded max restart attempts (%d), giving up\n", dc.current.ID, constants.MaxRestartAttempts)
+		}
+	}
+
+	// Previous proxy crashes are ignored - they will be cleaned up during normal deployment lifecycle
+}
+
+// restartProxy restarts a crashed proxy process
+func (dc *DeploymentController) restartProxy(proxy *DataProxyProcess) error {
+	// Increment restart count
+	proxy.RestartCount++
+
+	// Use exponential backoff for restart attempts
+	backoffDuration := time.Duration(proxy.RestartCount) * time.Second
+	if backoffDuration > constants.RestartBackoffMax {
+		backoffDuration = constants.RestartBackoffMax
+	}
+	time.Sleep(backoffDuration)
+
+	// Start the proxy process using shared function
+	process, proxyClient, err := startProxyProcess(proxy.ID, proxy.Port, dc.telemetry.GetStatsCollector(), proxy.LogCapture)
+	if err != nil {
+		return fmt.Errorf("failed to restart proxy process: %w", err)
+	}
+
+	// Update the proxy with new process and client
+	proxy.Process = process
+	proxy.ProxyClient = proxyClient
+	proxy.LaunchedAt = time.Now()
+
+	return nil
+}
+
+// GetProcessStats returns statistics about the proxy processes
+func (dc *DeploymentController) GetProcessStats() (currentRestarts int, previousRestarts int) {
+	dc.mu.RLock()
+	defer dc.mu.RUnlock()
+
+	if dc.current != nil {
+		currentRestarts = dc.current.RestartCount
+	}
+	if dc.previous != nil {
+		previousRestarts = dc.previous.RestartCount
+	}
+	return
 }

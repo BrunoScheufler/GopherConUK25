@@ -997,24 +997,59 @@ func (m *Model) renderDeploymentVersions() string {
 	previous := m.appConfig.DeploymentController.Previous()
 	stats := m.appConfig.Telemetry.GetStatsCollector().Export()
 
+	// Get restart statistics
+	currentRestarts, previousRestarts := m.appConfig.DeploymentController.GetProcessStats()
+
 	// Build current deployment column
 	var currentContent strings.Builder
-	currentContent.WriteString(headerStyle.Render("Current") + "\n")
+	
+	// Build header with PID if available
+	var currentHeader string
+	if current != nil && current.Process != nil {
+		currentHeader = fmt.Sprintf("Current (PID %d)", current.Process.Pid)
+	} else {
+		currentHeader = "Current"
+	}
+	currentContent.WriteString(headerStyle.Render(currentHeader) + "\n")
+	
 	if current != nil {
 		currentContent.WriteString(fmt.Sprintf("%s %s\n",
 			lipgloss.NewStyle().Foreground(m.theme.Primary).Render(fmt.Sprintf("v%d:", current.ID)),
 			valueStyle.Render(current.LaunchedAt.Format("15:04:05"))))
+		
+		// Add restart count only if > 0
+		if currentRestarts > 0 {
+			restartStyle := lipgloss.NewStyle().Foreground(m.theme.Warning)
+			currentContent.WriteString(fmt.Sprintf("Restarts: %s\n", 
+				restartStyle.Render(fmt.Sprintf("%d ⚠️", currentRestarts))))
+		}
 	} else {
 		currentContent.WriteString(subtleStyle.Render("None") + "\n")
 	}
 
 	// Build previous deployment column
 	var previousContent strings.Builder
-	previousContent.WriteString(headerStyle.Render("Previous") + "\n")
+	
+	// Build header with PID if available
+	var previousHeader string
+	if previous != nil && previous.Process != nil {
+		previousHeader = fmt.Sprintf("Previous (PID %d)", previous.Process.Pid)
+	} else {
+		previousHeader = "Previous"
+	}
+	previousContent.WriteString(headerStyle.Render(previousHeader) + "\n")
+	
 	if previous != nil {
 		previousContent.WriteString(fmt.Sprintf("%s %s\n",
 			lipgloss.NewStyle().Foreground(m.theme.Primary).Render(fmt.Sprintf("v%d:", previous.ID)),
 			valueStyle.Render(previous.LaunchedAt.Format("15:04:05"))))
+		
+		// Add restart count only if > 0
+		if previousRestarts > 0 {
+			restartStyle := lipgloss.NewStyle().Foreground(m.theme.Warning)
+			previousContent.WriteString(fmt.Sprintf("Restarts: %s\n", 
+				restartStyle.Render(fmt.Sprintf("%d ⚠️", previousRestarts))))
+		}
 	} else {
 		previousContent.WriteString(subtleStyle.Render("None") + "\n")
 	}

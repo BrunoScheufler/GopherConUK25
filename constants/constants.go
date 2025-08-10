@@ -22,12 +22,15 @@ const (
 	DefaultStatsInterval = 2 * time.Second
 
 	// Proxy configuration
-	InstrumentInterval  = 2 * time.Second
-	ProxyPort           = 9000
-	ShardOfflineTimeout = 5 * time.Second
-	RollingReleaseDelay = 5 * time.Second
-	MaxNetworkDelayMs   = 5
-	DeploymentWaitTime  = 30 * time.Second
+	InstrumentInterval     = 2 * time.Second
+	ProxyPort              = 9000
+	ShardOfflineTimeout    = 5 * time.Second
+	RollingReleaseDelay    = 5 * time.Second
+	MaxNetworkDelayMs      = 5
+	DeploymentWaitTime     = 30 * time.Second
+	ProcessMonitorInterval = 2 * time.Second
+	MaxRestartAttempts     = 5
+	RestartBackoffMax      = 10 * time.Second
 )
 
 // Note store identifier constants

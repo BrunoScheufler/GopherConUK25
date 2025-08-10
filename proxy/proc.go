@@ -3,9 +3,11 @@ package proxy
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -15,11 +17,13 @@ import (
 
 // DataProxyProcess represents a running data proxy process
 type DataProxyProcess struct {
-	ID          int
-	Process     *os.Process
-	LogCapture  *telemetry.LogCapture
-	ProxyClient *ProxyClient
-	LaunchedAt  time.Time
+	ID           int
+	Process      *os.Process
+	LogCapture   *telemetry.LogCapture
+	ProxyClient  *ProxyClient
+	LaunchedAt   time.Time
+	RestartCount int
+	Port         int // Store port for restart purposes
 }
 
 // freePort returns a free port on the system
@@ -34,6 +38,81 @@ func freePort() (int, error) {
 	return addr.Port, nil
 }
 
+// startProxyProcess starts a proxy process and waits for it to be ready
+func startProxyProcess(id int, port int, statsCollector telemetry.StatsCollector, logCapture *telemetry.LogCapture) (*os.Process, *ProxyClient, error) {
+	// Step 1: Build to temporary location
+	tmpDir, err := ioutil.TempDir("", "proxy-build-")
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create temp directory: %w", err)
+	}
+	
+	binaryPath := filepath.Join(tmpDir, "proxy")
+	
+	// Get current working directory for build context
+	workDir, err := os.Getwd()
+	if err != nil {
+		os.RemoveAll(tmpDir)
+		return nil, nil, fmt.Errorf("failed to get working directory: %w", err)
+	}
+	
+	// Build the binary
+	buildCmd := exec.Command("go", "build", "-o", binaryPath, ".")
+	buildCmd.Dir = workDir
+	if err := buildCmd.Run(); err != nil {
+		os.RemoveAll(tmpDir)
+		return nil, nil, fmt.Errorf("failed to build proxy binary: %w", err)
+	}
+	
+	// Step 2: Run the binary directly
+	cmd := exec.Command(
+		binaryPath,
+		"--proxy",
+		"--proxy-port", fmt.Sprintf("%d", port),
+		"--proxy-id", fmt.Sprintf("%d", id),
+	)
+	cmd.Dir = workDir
+
+	// Pipe stdout and stderr to log capture
+	cmd.Stdout = logCapture
+	cmd.Stderr = logCapture
+
+	// Start the process
+	if err := cmd.Start(); err != nil {
+		os.RemoveAll(tmpDir)
+		return nil, nil, fmt.Errorf("failed to start proxy process: %w", err)
+	}
+
+	// Clean up temp directory immediately after starting - binary is already loaded
+	defer os.RemoveAll(tmpDir)
+
+	// Create proxy client
+	baseURL := fmt.Sprintf("http://localhost:%d", port)
+	proxyClient := NewProxyClient(id, baseURL, statsCollector)
+
+	// Create temporary proxy process for health checking
+	tempProxy := &DataProxyProcess{
+		Process:     cmd.Process,
+		ProxyClient: proxyClient,
+	}
+
+	// Wait for proxy to be ready using shared health check
+	ready := false
+	for i := 0; i < 10; i++ {
+		if tempProxy.healthCheck(1 * time.Second) {
+			ready = true
+			break
+		}
+		time.Sleep(1 * time.Second)
+	}
+
+	if !ready {
+		cmd.Process.Kill()
+		return nil, nil, fmt.Errorf("proxy failed to become ready after 10 attempts")
+	}
+
+	return cmd.Process, proxyClient, nil
+}
+
 // LaunchDataProxy starts a child process running a data proxy
 func LaunchDataProxy(id int, statsCollector telemetry.StatsCollector, logCapture *telemetry.LogCapture) (*DataProxyProcess, error) {
 	// Get a free port for the proxy
@@ -42,64 +121,21 @@ func LaunchDataProxy(id int, statsCollector telemetry.StatsCollector, logCapture
 		return nil, fmt.Errorf("failed to get free port: %w", err)
 	}
 
-	// Build the command to run the proxy
-	cmd := exec.Command(
-		"go", "run", ".",
-		"--proxy",
-		"--proxy-port", fmt.Sprintf("%d", port),
-		"--proxy-id", fmt.Sprintf("%d", id),
-	)
-	cmd.Dir, err = os.Getwd()
+	// Start the proxy process and wait for readiness
+	process, proxyClient, err := startProxyProcess(id, port, statsCollector, logCapture)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get working directory: %w", err)
+		return nil, err
 	}
-
-	// Pipe stdout and stderr to log capture
-	cmd.Stdout = logCapture
-	cmd.Stderr = logCapture
-
-	// Start the process
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start proxy process: %w", err)
-	}
-
-	// Create proxy client
-	baseURL := fmt.Sprintf("http://localhost:%d", port)
-	proxyClient := NewProxyClient(id, baseURL, statsCollector)
 
 	// Create the data proxy process
 	dataProxyProcess := &DataProxyProcess{
-		ID:          id,
-		Process:     cmd.Process,
-		LogCapture:  logCapture,
-		ProxyClient: proxyClient,
-		LaunchedAt:  time.Now(),
-	}
-
-	// Wait for proxy to be ready
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	ready := false
-	for i := 0; i < 10; i++ {
-		select {
-		case <-ctx.Done():
-			dataProxyProcess.Shutdown()
-			return nil, fmt.Errorf("timeout waiting for proxy to be ready")
-		default:
-		}
-
-		if err := proxyClient.Ready(ctx); err == nil {
-			ready = true
-			break
-		}
-
-		time.Sleep(1 * time.Second)
-	}
-
-	if !ready {
-		dataProxyProcess.Shutdown()
-		return nil, fmt.Errorf("proxy failed to become ready after 10 attempts")
+		ID:           id,
+		Process:      process,
+		LogCapture:   logCapture,
+		ProxyClient:  proxyClient,
+		LaunchedAt:   time.Now(),
+		RestartCount: 0,
+		Port:         port,
 	}
 
 	return dataProxyProcess, nil
@@ -138,4 +174,32 @@ func (dpp *DataProxyProcess) Shutdown() error {
 		dpp.Process = nil
 		return nil
 	}
+}
+
+// healthCheck performs an HTTP health check with a short timeout
+func (dpp *DataProxyProcess) healthCheck(timeout time.Duration) bool {
+	if dpp.Process == nil || dpp.ProxyClient == nil {
+		return false
+	}
+	
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	
+	return dpp.ProxyClient.Ready(ctx) == nil
+}
+
+// IsRunning checks if the process is still running using HTTP health check
+func (dpp *DataProxyProcess) IsRunning() bool {
+	if dpp.Process == nil {
+		return false
+	}
+	
+	// Use a short timeout for crash detection (500ms)
+	if !dpp.healthCheck(500 * time.Millisecond) {
+		// Process is not responding or dead, clear the reference
+		dpp.Process = nil
+		return false
+	}
+	
+	return true
 }
