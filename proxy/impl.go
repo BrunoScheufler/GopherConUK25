@@ -208,7 +208,20 @@ func (p *DataProxy) UpdateNote(ctx context.Context, accountDetails AccountDetail
 
 			_ = p.statsCollector.TrackDataStoreAccess("UpdateNote", time.Since(start), constants.NewNoteStore, telemetry.DataStoreAccessStatusSuccess)
 
-			// TODO: Track migrated note in a counter
+			// Update note counts after successful migration
+			// This ensures the UI accurately reflects where notes are stored
+			legacyCount, err := p.legacyNoteStore.GetTotalNotes(ctx)
+			if err != nil {
+				return fmt.Errorf("could not retrieve legacy note count after migration: %w", err)
+			}
+			p.statsCollector.TrackNoteCount(constants.LegacyNoteStore, legacyCount)
+
+			newCount, err := p.newNoteStore.GetTotalNotes(ctx)
+			if err != nil {
+				return fmt.Errorf("could not retrieve new note count after migration: %w", err)
+			}
+			p.statsCollector.TrackNoteCount(constants.NewNoteStore, newCount)
+
 			return nil
 		}
 	}
