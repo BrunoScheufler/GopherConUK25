@@ -28,7 +28,6 @@ type JSONRPCResponse struct {
 	ID     int         `json:"id"`
 }
 
-
 // startServer starts the HTTP server and handles JSON RPC requests
 func (p *DataProxy) startServer(ctx context.Context) error {
 	mux := http.NewServeMux()
@@ -111,7 +110,7 @@ func (p *DataProxy) handleMethod(ctx context.Context, method string, params any)
 		if err := p.unmarshalParams(params, &args); err != nil {
 			return nil, err
 		}
-		return p.ListNotesWithMigration(ctx, args.AccountDetails)
+		return p.ListNotes(ctx, args.AccountDetails)
 
 	case "GetNote":
 		var args struct {
@@ -121,7 +120,7 @@ func (p *DataProxy) handleMethod(ctx context.Context, method string, params any)
 		if err := p.unmarshalParams(params, &args); err != nil {
 			return nil, err
 		}
-		return p.GetNoteWithMigration(ctx, args.AccountDetails, args.NoteID)
+		return p.GetNote(ctx, args.AccountDetails, args.NoteID)
 
 	case "CreateNote":
 		var args struct {
@@ -131,7 +130,7 @@ func (p *DataProxy) handleMethod(ctx context.Context, method string, params any)
 		if err := p.unmarshalParams(params, &args); err != nil {
 			return nil, err
 		}
-		err := p.CreateNoteWithMigration(ctx, args.AccountDetails, args.Note)
+		err := p.CreateNote(ctx, args.AccountDetails, args.Note)
 		return nil, err
 
 	case "UpdateNote":
@@ -142,7 +141,7 @@ func (p *DataProxy) handleMethod(ctx context.Context, method string, params any)
 		if err := p.unmarshalParams(params, &args); err != nil {
 			return nil, err
 		}
-		err := p.UpdateNoteWithMigration(ctx, args.AccountDetails, args.Note)
+		err := p.UpdateNote(ctx, args.AccountDetails, args.Note)
 		return nil, err
 
 	case "DeleteNote":
@@ -153,7 +152,7 @@ func (p *DataProxy) handleMethod(ctx context.Context, method string, params any)
 		if err := p.unmarshalParams(params, &args); err != nil {
 			return nil, err
 		}
-		err := p.DeleteNoteWithMigration(ctx, args.AccountDetails, args.Note)
+		err := p.DeleteNote(ctx, args.AccountDetails, args.Note)
 		return nil, err
 
 	case "CountNotes":
@@ -163,7 +162,7 @@ func (p *DataProxy) handleMethod(ctx context.Context, method string, params any)
 		if err := p.unmarshalParams(params, &args); err != nil {
 			return nil, err
 		}
-		return p.CountNotesWithMigration(ctx, args.AccountDetails)
+		return p.CountNotes(ctx, args.AccountDetails)
 
 	case "GetTotalNotes":
 		return p.GetTotalNotes(ctx)
@@ -194,4 +193,3 @@ func (p *DataProxy) unmarshalParams(params interface{}, target interface{}) erro
 	}
 	return nil
 }
-

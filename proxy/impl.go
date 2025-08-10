@@ -23,13 +23,8 @@ func (p *DataProxy) init() error {
 	return nil
 }
 
-// ListNotes implements NoteStore interface with locking
-func (p *DataProxy) ListNotes(ctx context.Context, accountID uuid.UUID) ([]uuid.UUID, error) {
-	return p.ListNotesWithMigration(ctx, AccountDetails{AccountID: accountID, IsMigrating: false})
-}
-
-// ListNotesWithMigration lists notes with account details consideration
-func (p *DataProxy) ListNotesWithMigration(ctx context.Context, accountDetails AccountDetails) ([]uuid.UUID, error) {
+// ListNotes lists notes with account details consideration
+func (p *DataProxy) ListNotes(ctx context.Context, accountDetails AccountDetails) ([]uuid.UUID, error) {
 	p.lockWithContentionTracking("ListNotes")
 	defer p.mu.Unlock()
 
@@ -48,13 +43,8 @@ func (p *DataProxy) ListNotesWithMigration(ctx context.Context, accountDetails A
 	return result, err
 }
 
-// GetNote implements NoteStore interface with locking
-func (p *DataProxy) GetNote(ctx context.Context, accountID, noteID uuid.UUID) (*store.Note, error) {
-	return p.GetNoteWithMigration(ctx, AccountDetails{AccountID: accountID, IsMigrating: false}, noteID)
-}
-
-// GetNoteWithMigration gets a note with account details consideration
-func (p *DataProxy) GetNoteWithMigration(ctx context.Context, accountDetails AccountDetails, noteID uuid.UUID) (*store.Note, error) {
+// GetNote gets a note with account details consideration
+func (p *DataProxy) GetNote(ctx context.Context, accountDetails AccountDetails, noteID uuid.UUID) (*store.Note, error) {
 	p.lockWithContentionTracking("GetNote")
 	defer p.mu.Unlock()
 
@@ -73,13 +63,8 @@ func (p *DataProxy) GetNoteWithMigration(ctx context.Context, accountDetails Acc
 	return result, err
 }
 
-// CreateNote implements NoteStore interface with locking
-func (p *DataProxy) CreateNote(ctx context.Context, accountID uuid.UUID, note store.Note) error {
-	return p.CreateNoteWithMigration(ctx, AccountDetails{AccountID: accountID, IsMigrating: false}, note)
-}
-
-// CreateNoteWithMigration creates a note with account details consideration
-func (p *DataProxy) CreateNoteWithMigration(ctx context.Context, accountDetails AccountDetails, note store.Note) error {
+// CreateNote creates a note with account details consideration
+func (p *DataProxy) CreateNote(ctx context.Context, accountDetails AccountDetails, note store.Note) error {
 	p.lockWithContentionTracking("CreateNote")
 	defer p.mu.Unlock()
 
@@ -105,13 +90,8 @@ func (p *DataProxy) CreateNoteWithMigration(ctx context.Context, accountDetails 
 	return err
 }
 
-// UpdateNote implements NoteStore interface with locking
-func (p *DataProxy) UpdateNote(ctx context.Context, accountID uuid.UUID, note store.Note) error {
-	return p.UpdateNoteWithMigration(ctx, AccountDetails{AccountID: accountID, IsMigrating: false}, note)
-}
-
-// UpdateNoteWithMigration updates a note with account details consideration
-func (p *DataProxy) UpdateNoteWithMigration(ctx context.Context, accountDetails AccountDetails, note store.Note) error {
+// UpdateNote updates a note with account details consideration
+func (p *DataProxy) UpdateNote(ctx context.Context, accountDetails AccountDetails, note store.Note) error {
 	p.lockWithContentionTracking("UpdateNote")
 	defer p.mu.Unlock()
 
@@ -130,13 +110,8 @@ func (p *DataProxy) UpdateNoteWithMigration(ctx context.Context, accountDetails 
 	return err
 }
 
-// DeleteNote implements NoteStore interface with locking
-func (p *DataProxy) DeleteNote(ctx context.Context, accountID uuid.UUID, note store.Note) error {
-	return p.DeleteNoteWithMigration(ctx, AccountDetails{AccountID: accountID, IsMigrating: false}, note)
-}
-
-// DeleteNoteWithMigration deletes a note with account details consideration
-func (p *DataProxy) DeleteNoteWithMigration(ctx context.Context, accountDetails AccountDetails, note store.Note) error {
+// DeleteNote deletes a note with account details consideration
+func (p *DataProxy) DeleteNote(ctx context.Context, accountDetails AccountDetails, note store.Note) error {
 	p.lockWithContentionTracking("DeleteNote")
 	defer p.mu.Unlock()
 
@@ -163,13 +138,8 @@ func (p *DataProxy) DeleteNoteWithMigration(ctx context.Context, accountDetails 
 	return err
 }
 
-// CountNotes implements NoteStore interface with locking
-func (p *DataProxy) CountNotes(ctx context.Context, accountID uuid.UUID) (int, error) {
-	return p.CountNotesWithMigration(ctx, AccountDetails{AccountID: accountID, IsMigrating: false})
-}
-
-// CountNotesWithMigration counts notes with account details consideration
-func (p *DataProxy) CountNotesWithMigration(ctx context.Context, accountDetails AccountDetails) (int, error) {
+// CountNotes counts notes with account details consideration
+func (p *DataProxy) CountNotes(ctx context.Context, accountDetails AccountDetails) (int, error) {
 	p.lockWithContentionTracking("CountNotes")
 	defer p.mu.Unlock()
 
