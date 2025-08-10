@@ -18,6 +18,7 @@ type DataProxy struct {
 
 	legacyNoteStore store.NoteStore
 	newNoteStore    store.NoteStore
+	secondShard     store.NoteStore
 
 	statsCollector telemetry.StatsCollector
 	mu             sync.Mutex
