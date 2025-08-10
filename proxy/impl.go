@@ -363,7 +363,18 @@ func (p *DataProxy) GetTotalNotes(ctx context.Context) (int, error) {
 func (p *DataProxy) HealthCheck(ctx context.Context) error {
 	p.lockWithContentionTracking("HealthCheck")
 	defer p.mu.Unlock()
-	return p.legacyNoteStore.HealthCheck(ctx)
+	err := p.legacyNoteStore.HealthCheck(ctx)
+	if err != nil {
+		return fmt.Errorf("could not perform health check for legacy: %w", err)
+	}
+
+	// Also check new note store
+	err = p.newNoteStore.HealthCheck(ctx)
+	if err != nil {
+		return fmt.Errorf("could not perform health check for new shard: %w", err)
+	}
+
+	return nil
 }
 
 // Ready RPC method for readiness checks
