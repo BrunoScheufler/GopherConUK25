@@ -27,7 +27,7 @@ func (p *DataProxy) init() error {
 
 	p.newNoteStore = newStore
 
-	secondShard, err := store.NewNoteStore(store.DefaultStoreOptions(constants.SecondShard, p.logger))
+	secondShard, err := store.NewNoteStore(store.DefaultStoreOptions(constants.SecondShardStore, p.logger))
 	if err != nil {
 		return fmt.Errorf("failed to create second shard: %w", err)
 	}
