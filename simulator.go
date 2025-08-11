@@ -17,6 +17,17 @@ import (
 	"github.com/google/uuid"
 )
 
+// Operation represents the types of operations the simulator can perform
+type Operation string
+
+const (
+	OpCreate Operation = "create"
+	OpRead   Operation = "read"
+	OpUpdate Operation = "update"
+	OpDelete Operation = "delete"
+	OpList   Operation = "list"
+)
+
 type SimulatorOptions struct {
 	AccountCount    int
 	NotesPerAccount int
@@ -44,6 +55,9 @@ type AccountLoop struct {
 	// Track notes with their expected content hashes
 	notes     map[uuid.UUID]string // noteID -> hash
 	notesLock sync.RWMutex
+
+	// Note count management
+	targetNoteCount int
 
 	ctx    context.Context
 	ticker *time.Ticker
@@ -142,12 +156,13 @@ func (s *Simulator) runAccountLoop(account store.Account) {
 	defer s.wg.Done()
 
 	accountLoop := &AccountLoop{
-		accountID: account.ID,
-		apiClient: s.apiClient,
-		telemetry: s.telemetry,
-		logger:    s.logger.With("account_id", account.ID),
-		notes:     make(map[uuid.UUID]string),
-		ctx:       s.ctx,
+		accountID:       account.ID,
+		apiClient:       s.apiClient,
+		telemetry:       s.telemetry,
+		logger:          s.logger.With("account_id", account.ID),
+		notes:           make(map[uuid.UUID]string),
+		targetNoteCount: s.options.NotesPerAccount,
+		ctx:             s.ctx,
 	}
 
 	// Calculate ticker interval based on requests per minute
@@ -196,17 +211,12 @@ func (al *AccountLoop) createInitialNotes(count int) error {
 }
 
 func (al *AccountLoop) run() {
-	operations := map[string]func() error{
-		"create": al.createNote,
-		"update": al.updateNote,
-		"read":   al.readNote,
-		"delete": al.deleteNote,
-		"list":   al.listNotes,
-	}
-
-	availableOperations := make([]string, 0, len(operations))
-	for opName := range operations {
-		availableOperations = append(availableOperations, opName)
+	operations := map[Operation]func() error{
+		OpCreate: al.createNote,
+		OpUpdate: al.updateNote,
+		OpRead:   al.readNote,
+		OpDelete: al.deleteNote,
+		OpList:   al.listNotes,
 	}
 
 	for {
@@ -214,20 +224,134 @@ func (al *AccountLoop) run() {
 		case <-al.ctx.Done():
 			return
 		case <-al.ticker.C:
-			op := availableOperations[rand.Intn(len(availableOperations))]
+			op := al.selectOperation()
 			operation := operations[op]
 			if err := operation(); err != nil {
 				// Only log errors, not every operation
-				al.logger.Error("Load generator operation failed", "op", op, "error", err)
+				al.logger.Error("Load generator operation failed", "op", string(op), "error", err)
 				continue
 			}
 
-			al.logger.Debug("successfully performed operation", "op", op)
+			al.logger.Debug("successfully performed operation", "op", string(op))
 		}
 	}
 }
 
+// selectOperation chooses an operation based on current note count vs target
+func (al *AccountLoop) selectOperation() Operation {
+	al.notesLock.RLock()
+	currentCount := len(al.notes)
+	al.notesLock.RUnlock()
+
+	// If we have exactly the target count, all operations except create/delete
+	if currentCount == al.targetNoteCount {
+		// Higher weight on read operations (most common in real usage)
+		weights := []struct {
+			op     Operation
+			weight int
+		}{
+			{OpRead, 50},   // 50% read
+			{OpUpdate, 25}, // 25% update
+			{OpList, 25},   // 25% list
+		}
+		return al.weightedRandomSelect(weights)
+	}
+
+	// If below target, bias towards create
+	if currentCount < al.targetNoteCount {
+		// Calculate how far we are from target (0.0 to 1.0)
+		deficit := float64(al.targetNoteCount-currentCount) / float64(al.targetNoteCount)
+		
+		// More aggressive create bias when further from target
+		createWeight := int(30 + deficit*40) // 30-70% based on deficit
+		
+		weights := []struct {
+			op     Operation
+			weight int
+		}{
+			{OpCreate, createWeight},
+			{OpRead, 30},
+			{OpUpdate, 20},
+			{OpList, 15},
+			{OpDelete, 100 - createWeight - 65}, // Remainder, but at least 5%
+		}
+		
+		// Don't allow delete if at 0
+		if currentCount == 0 {
+			weights[4].weight = 0
+		}
+		
+		return al.weightedRandomSelect(weights)
+	}
+
+	// If above target (shouldn't happen with max=target, but handle it)
+	if currentCount > al.targetNoteCount {
+		// Must delete to get back to target
+		weights := []struct {
+			op     Operation
+			weight int
+		}{
+			{OpDelete, 60}, // 60% delete to get back to target
+			{OpRead, 20},
+			{OpUpdate, 10},
+			{OpList, 10},
+			{OpCreate, 0}, // No creates when over target
+		}
+		return al.weightedRandomSelect(weights)
+	}
+
+	// Default balanced distribution
+	weights := []struct {
+		op     Operation
+		weight int
+	}{
+		{OpRead, 40},
+		{OpUpdate, 20},
+		{OpCreate, 15},
+		{OpDelete, 15},
+		{OpList, 10},
+	}
+	return al.weightedRandomSelect(weights)
+}
+
+// weightedRandomSelect picks a random operation based on weights
+func (al *AccountLoop) weightedRandomSelect(weights []struct {
+	op     Operation
+	weight int
+}) Operation {
+	totalWeight := 0
+	for _, w := range weights {
+		totalWeight += w.weight
+	}
+
+	if totalWeight == 0 {
+		// Fallback to read if all weights are 0
+		return OpRead
+	}
+
+	r := rand.Intn(totalWeight)
+	for _, w := range weights {
+		r -= w.weight
+		if r < 0 {
+			return w.op
+		}
+	}
+
+	// Should never reach here, but return read as fallback
+	return OpRead
+}
+
 func (al *AccountLoop) createNote() error {
+	// Check if we're at target capacity
+	al.notesLock.RLock()
+	currentCount := len(al.notes)
+	al.notesLock.RUnlock()
+
+	if currentCount >= al.targetNoteCount {
+		// Silently skip creation when at target
+		return nil
+	}
+
 	content := fmt.Sprintf("Note created at %s", time.Now().Format(time.RFC3339))
 	note := store.Note{
 		ID:        uuid.New(),
@@ -318,7 +442,9 @@ func (al *AccountLoop) deleteNote() error {
 	al.notesLock.Lock()
 	defer al.notesLock.Unlock()
 
-	if len(al.notes) == 0 {
+	currentCount := len(al.notes)
+	
+	if currentCount == 0 {
 		return nil // No notes to delete
 	}
 
