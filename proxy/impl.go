@@ -367,19 +367,19 @@ func (p *DataProxy) GetTotalNotes(ctx context.Context) (int, error) {
 	return totalCount, nil
 }
 
-// HealthCheck implements NoteStore interface with locking
+// HealthCheck implements health checks for all shards
 func (p *DataProxy) HealthCheck(ctx context.Context) error {
 	p.lockWithContentionTracking("HealthCheck")
 	defer p.mu.Unlock()
-	err := p.legacyNoteStore.HealthCheck(ctx)
-	if err != nil {
-		return fmt.Errorf("could not perform health check for legacy: %w", err)
-	}
 
-	// Also check new note store
-	err = p.newNoteStore.HealthCheck(ctx)
+	err := p.newNoteStore.HealthCheck(ctx)
 	if err != nil {
 		return fmt.Errorf("could not perform health check for new shard: %w", err)
+	}
+
+	err = p.secondShard.HealthCheck(ctx)
+	if err != nil {
+		return fmt.Errorf("could not perform health check for second shard: %w", err)
 	}
 
 	return nil
