@@ -432,7 +432,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				currentIndex := m.accountsTable.Cursor()
 				if len(m.accountsList) > 0 && currentIndex >= 0 && currentIndex < len(m.accountsList) {
 					currentAccount := m.accountsList[currentIndex].Account
-					
+
 					// Find current shard index (-1 for null/no shard)
 					currentShardIndex := -1
 					if currentAccount.Shard != nil {
@@ -443,15 +443,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							}
 						}
 					}
-					
+
 					// Cycle to next shard (including null as the last option)
 					nextShardIndex := currentShardIndex + 1
 					if nextShardIndex >= len(constants.Shards) {
 						// Cycle back to null (no shard)
 						currentAccount.Shard = nil
+						currentAccount.IsMigrating = true
 					} else {
 						nextShard := constants.Shards[nextShardIndex]
 						currentAccount.Shard = &nextShard
+						currentAccount.IsMigrating = true
 					}
 
 					// Update the account in the store
@@ -1058,7 +1060,7 @@ func (m *Model) renderDeploymentVersions() string {
 
 	// Build current deployment column
 	var currentContent strings.Builder
-	
+
 	// Build header with PID if available
 	var currentHeader string
 	if current != nil && current.Process != nil {
@@ -1067,16 +1069,16 @@ func (m *Model) renderDeploymentVersions() string {
 		currentHeader = "Current"
 	}
 	currentContent.WriteString(headerStyle.Render(currentHeader) + "\n")
-	
+
 	if current != nil {
 		currentContent.WriteString(fmt.Sprintf("%s %s\n",
 			lipgloss.NewStyle().Foreground(m.theme.Primary).Render(fmt.Sprintf("v%d:", current.ID)),
 			valueStyle.Render(current.LaunchedAt.Format("15:04:05"))))
-		
+
 		// Add restart count only if > 0
 		if currentRestarts > 0 {
 			restartStyle := lipgloss.NewStyle().Foreground(m.theme.Warning)
-			currentContent.WriteString(fmt.Sprintf("Restarts: %s\n", 
+			currentContent.WriteString(fmt.Sprintf("Restarts: %s\n",
 				restartStyle.Render(fmt.Sprintf("%d ⚠️", currentRestarts))))
 		}
 	} else {
@@ -1085,7 +1087,7 @@ func (m *Model) renderDeploymentVersions() string {
 
 	// Build previous deployment column
 	var previousContent strings.Builder
-	
+
 	// Build header with PID if available
 	var previousHeader string
 	if previous != nil && previous.Process != nil {
@@ -1094,16 +1096,16 @@ func (m *Model) renderDeploymentVersions() string {
 		previousHeader = "Previous"
 	}
 	previousContent.WriteString(headerStyle.Render(previousHeader) + "\n")
-	
+
 	if previous != nil {
 		previousContent.WriteString(fmt.Sprintf("%s %s\n",
 			lipgloss.NewStyle().Foreground(m.theme.Primary).Render(fmt.Sprintf("v%d:", previous.ID)),
 			valueStyle.Render(previous.LaunchedAt.Format("15:04:05"))))
-		
+
 		// Add restart count only if > 0
 		if previousRestarts > 0 {
 			restartStyle := lipgloss.NewStyle().Foreground(m.theme.Warning)
-			previousContent.WriteString(fmt.Sprintf("Restarts: %s\n", 
+			previousContent.WriteString(fmt.Sprintf("Restarts: %s\n",
 				restartStyle.Render(fmt.Sprintf("%d ⚠️", previousRestarts))))
 		}
 	} else {
