@@ -30,6 +30,45 @@ func (p *DataProxy) init() error {
 	return nil
 }
 
+func (p *DataProxy) getShardStore(shardName string) store.NoteStore {
+	switch shardName {
+	case constants.NewNoteStore:
+		return p.newNoteStore
+	case constants.SecondShardStore:
+		return p.secondShard
+	default:
+		return nil
+	}
+}
+
+// getAccountShard retrieves the account shard name and store, defaulting to the new store if the shard is not configured.
+func (p *DataProxy) getAccountShard(accountDetails AccountDetails) (string, store.NoteStore) {
+	shardName := constants.NewNoteStore
+	if accountDetails.Shard != nil {
+		shardName = *accountDetails.Shard
+	}
+
+	store := p.getShardStore(shardName)
+
+	return shardName, store
+}
+
+// previousShard returns the shard used before the current one. In this naive implementation, this is simply the other shard.
+// In a real system, you would likely track a history of which shards an account was placed on to query a subset of all shards.
+func (p *DataProxy) previousShard(shardName string) (string, store.NoteStore) {
+	var previousShard string
+
+	switch shardName {
+	case string(constants.NewNoteStore):
+		previousShard = constants.SecondShardStore
+	case string(constants.SecondShardStore):
+		previousShard = constants.NewNoteStore
+	}
+
+	store := p.getShardStore(previousShard)
+	return previousShard, store
+}
+
 // ListNotes lists notes with account details consideration
 func (p *DataProxy) ListNotes(ctx context.Context, accountDetails AccountDetails) ([]uuid.UUID, error) {
 	p.lockWithContentionTracking("ListNotes")
@@ -38,12 +77,13 @@ func (p *DataProxy) ListNotes(ctx context.Context, accountDetails AccountDetails
 	// Collect note IDs from all shards in a map (to deduplicate notes)
 	allNoteIDs := make(map[uuid.UUID]struct{})
 
-	// TODO: Retrieve notes from account shard primarily.
+	shardName, shardStore := p.getAccountShard(accountDetails)
+
 	start := time.Now()
-	noteIDs, err := p.newNoteStore.ListNotes(ctx, accountDetails.AccountID)
+	noteIDs, err := shardStore.ListNotes(ctx, accountDetails.AccountID)
 	if err != nil {
-		_ = p.statsCollector.TrackDataStoreAccess("ListNotes", time.Since(start), constants.NewNoteStore, telemetry.DataStoreAccessStatusError)
-		return nil, fmt.Errorf("could not list notes in new note store: %w", err)
+		_ = p.statsCollector.TrackDataStoreAccess("ListNotes", time.Since(start), shardName, telemetry.DataStoreAccessStatusError)
+		return nil, fmt.Errorf("could not list notes in %q store: %w", shardName, err)
 	}
 
 	for _, noteID := range noteIDs {
@@ -51,9 +91,26 @@ func (p *DataProxy) ListNotes(ctx context.Context, accountDetails AccountDetails
 	}
 
 	// Track metrics, ignoring errors to avoid disrupting main operation
-	_ = p.statsCollector.TrackDataStoreAccess("ListNotes", time.Since(start), constants.NewNoteStore, telemetry.DataStoreAccessStatusSuccess)
+	_ = p.statsCollector.TrackDataStoreAccess("ListNotes", time.Since(start), shardName, telemetry.DataStoreAccessStatusSuccess)
 
-	// TODO: If migrating, also retrieve from other shard.
+	// If migrating, also retrieve from other shard.
+	if accountDetails.IsMigrating {
+		otherShard, otherStore := p.previousShard(shardName)
+
+		start := time.Now()
+		noteIDs, err := otherStore.ListNotes(ctx, accountDetails.AccountID)
+		if err != nil {
+			_ = p.statsCollector.TrackDataStoreAccess("ListNotes", time.Since(start), otherShard, telemetry.DataStoreAccessStatusError)
+			return nil, fmt.Errorf("could not list notes in %q store: %w", otherShard, err)
+		}
+
+		for _, noteID := range noteIDs {
+			allNoteIDs[noteID] = struct{}{}
+		}
+
+		// Track metrics, ignoring errors to avoid disrupting main operation
+		_ = p.statsCollector.TrackDataStoreAccess("ListNotes", time.Since(start), otherShard, telemetry.DataStoreAccessStatusSuccess)
+	}
 
 	// Convert merged results to slice
 	result := make([]uuid.UUID, 0, len(allNoteIDs))
@@ -69,17 +126,40 @@ func (p *DataProxy) GetNote(ctx context.Context, accountDetails AccountDetails, 
 	p.lockWithContentionTracking("GetNote")
 	defer p.mu.Unlock()
 
-	// TODO: Retrieve note from account shard. If migrating, attempt to load from current shard, and if not found, try the other shard.
+	// Retrieve note from account shard. If migrating, attempt to load from current shard, and if not found, try the other shard.
+	shardName, shardStore := p.getAccountShard(accountDetails)
 
 	start := time.Now()
-	result, err := p.newNoteStore.GetNote(ctx, accountDetails.AccountID, noteID)
+	note, err := shardStore.GetNote(ctx, accountDetails.AccountID, noteID)
 	if err != nil {
-		_ = p.statsCollector.TrackDataStoreAccess("GetNote", time.Since(start), constants.NewNoteStore, telemetry.DataStoreAccessStatusError)
-		return nil, fmt.Errorf("could not retrieve note from new store: %w", err)
+		_ = p.statsCollector.TrackDataStoreAccess("GetNote", time.Since(start), shardName, telemetry.DataStoreAccessStatusError)
+		return nil, fmt.Errorf("could not retrieve note from %q shard: %w", shardName, err)
 	}
 
-	_ = p.statsCollector.TrackDataStoreAccess("GetNote", time.Since(start), constants.NewNoteStore, telemetry.DataStoreAccessStatusSuccess)
-	return result, err
+	_ = p.statsCollector.TrackDataStoreAccess("GetNote", time.Since(start), shardName, telemetry.DataStoreAccessStatusSuccess)
+
+	// If we found the note on the account shard, return early
+	if note != nil {
+		return note, nil
+	}
+
+	// If not migrating, the note just doesn't exist
+	if !accountDetails.IsMigrating {
+		return nil, nil
+	}
+
+	// If we are migrating, the note may still be stored on the other shard
+	otherShard, otherStore := p.previousShard(shardName)
+	start = time.Now()
+	note, err = otherStore.GetNote(ctx, accountDetails.AccountID, noteID)
+	if err != nil {
+		_ = p.statsCollector.TrackDataStoreAccess("GetNote", time.Since(start), otherShard, telemetry.DataStoreAccessStatusError)
+		return nil, fmt.Errorf("could not retrieve note from %q shard: %w", otherShard, err)
+	}
+
+	_ = p.statsCollector.TrackDataStoreAccess("GetNote", time.Since(start), otherShard, telemetry.DataStoreAccessStatusSuccess)
+
+	return note, err
 }
 
 // CreateNote creates a note with account details consideration
@@ -87,9 +167,11 @@ func (p *DataProxy) CreateNote(ctx context.Context, accountDetails AccountDetail
 	p.lockWithContentionTracking("CreateNote")
 	defer p.mu.Unlock()
 
-	// TODO: Create note on account shard AFTER updating GetNote and ListNote implementations
-	storeToUse := p.newNoteStore
-	storeName := constants.NewNoteStore
+	// Create note on account shard AFTER updating GetNote and ListNote implementations
+	accountShard, accountStore := p.getAccountShard(accountDetails)
+
+	storeName := accountShard
+	storeToUse := accountStore
 
 	start := time.Now()
 
@@ -117,16 +199,55 @@ func (p *DataProxy) UpdateNote(ctx context.Context, accountDetails AccountDetail
 
 	start := time.Now()
 
-	// TODO: If migrating, check for existing note on other shard and migrate over to account shard. Then, delete on source shard.
+	shardName, shardStore := p.getAccountShard(accountDetails)
 
-	// TODO: Update on account shard
-	storeToUse := p.newNoteStore
-	storeName := constants.NewNoteStore
+	// If migrating, check for existing note on other shard and migrate over to account shard. Then, delete on source shard.
+	if accountDetails.IsMigrating {
+		prevShard, prevStore := p.previousShard(shardName)
 
-	err := storeToUse.UpdateNote(ctx, accountDetails.AccountID, note)
+		existingNote, err := prevStore.GetNote(ctx, accountDetails.AccountID, note.ID)
+		if err != nil {
+			_ = p.statsCollector.TrackDataStoreAccess("UpdateNote", time.Since(start), shardName, telemetry.DataStoreAccessStatusError)
+			return fmt.Errorf("could not check previous note store on %q: %w", prevShard, err)
+		}
+
+		if existingNote != nil {
+			err := shardStore.CreateNote(ctx, accountDetails.AccountID, note)
+			if err != nil {
+				_ = p.statsCollector.TrackDataStoreAccess("UpdateNote", time.Since(start), shardName, telemetry.DataStoreAccessStatusError)
+				return fmt.Errorf("could not create note in %q: %w", shardName, err)
+			}
+
+			err = prevStore.DeleteNote(ctx, accountDetails.AccountID, note)
+			if err != nil {
+				_ = p.statsCollector.TrackDataStoreAccess("UpdateNote", time.Since(start), shardName, telemetry.DataStoreAccessStatusError)
+				return fmt.Errorf("could not delete note from previous store %q: %w", prevShard, err)
+			}
+
+			_ = p.statsCollector.TrackDataStoreAccess("UpdateNote", time.Since(start), shardName, telemetry.DataStoreAccessStatusSuccess)
+
+			// Update note counts after successful migration
+			// This ensures the UI accurately reflects where notes are stored
+			legacyCount, err := prevStore.GetTotalNotes(ctx)
+			if err != nil {
+				return fmt.Errorf("could not retrieve %q shard note count after migration: %w", prevShard, err)
+			}
+			p.statsCollector.TrackNoteCount(prevShard, legacyCount)
+
+			newCount, err := shardStore.GetTotalNotes(ctx)
+			if err != nil {
+				return fmt.Errorf("could not retrieve %q note count after migration: %w", shardName, err)
+			}
+			p.statsCollector.TrackNoteCount(shardName, newCount)
+
+			return nil
+		}
+	}
+
+	err := shardStore.UpdateNote(ctx, accountDetails.AccountID, note)
 
 	// Track metrics, ignoring errors to avoid disrupting main operation
-	_ = p.statsCollector.TrackDataStoreAccess("UpdateNote", time.Since(start), storeName, telemetry.DataStoreAccessStatusSuccess)
+	_ = p.statsCollector.TrackDataStoreAccess("UpdateNote", time.Since(start), shardName, telemetry.DataStoreAccessStatusSuccess)
 	return err
 }
 
@@ -135,28 +256,48 @@ func (p *DataProxy) DeleteNote(ctx context.Context, accountDetails AccountDetail
 	p.lockWithContentionTracking("DeleteNote")
 	defer p.mu.Unlock()
 
-	// TODO: Delete from account shard. If migrating, also delete from source shard.
+	// Delete from account shard.
+	shardName, shardStore := p.getAccountShard(accountDetails)
 
 	start := time.Now()
-	err := p.newNoteStore.DeleteNote(ctx, accountDetails.AccountID, note)
+	err := shardStore.DeleteNote(ctx, accountDetails.AccountID, note)
 	if err != nil {
-		_ = p.statsCollector.TrackDataStoreAccess("DeleteNote", time.Since(start), constants.NewNoteStore, telemetry.DataStoreAccessStatusError)
-		return fmt.Errorf("could not delete note from new store: %w", err)
+		_ = p.statsCollector.TrackDataStoreAccess("DeleteNote", time.Since(start), shardName, telemetry.DataStoreAccessStatusError)
+		return fmt.Errorf("could not delete note from %q store: %w", shardName, err)
 	}
 
-	_ = p.statsCollector.TrackDataStoreAccess("DeleteNote", time.Since(start), constants.NewNoteStore, telemetry.DataStoreAccessStatusSuccess)
+	_ = p.statsCollector.TrackDataStoreAccess("DeleteNote", time.Since(start), shardName, telemetry.DataStoreAccessStatusSuccess)
 
-	// Report new total count
-	// TODO: Report total count on account shard
-	totalCount, err := p.newNoteStore.GetTotalNotes(ctx)
+	// Report new total count on account shard
+	totalCount, err := shardStore.GetTotalNotes(ctx)
 	if err != nil {
-		return fmt.Errorf("could not retrieve total note count from new store: %w", err)
+		return fmt.Errorf("could not retrieve total note count from %q store: %w", shardName, err)
 	}
-	p.statsCollector.TrackNoteCount(constants.NewNoteStore, totalCount)
 
-	// TODO: Report total count on other shard, if migrating
+	p.statsCollector.TrackNoteCount(shardName, totalCount)
 
-	return err
+	// If migrating, also delete from source shard.
+	if accountDetails.IsMigrating {
+		prevShard, prevStore := p.previousShard(shardName)
+
+		start := time.Now()
+		err := prevStore.DeleteNote(ctx, accountDetails.AccountID, note)
+		if err != nil {
+			_ = p.statsCollector.TrackDataStoreAccess("DeleteNote", time.Since(start), prevShard, telemetry.DataStoreAccessStatusError)
+			return fmt.Errorf("could not delete note from %q store: %w", prevShard, err)
+		}
+
+		_ = p.statsCollector.TrackDataStoreAccess("DeleteNote", time.Since(start), prevShard, telemetry.DataStoreAccessStatusSuccess)
+
+		// Report total count on other shard, if migrating
+		totalCount, err := prevStore.GetTotalNotes(ctx)
+		if err != nil {
+			return fmt.Errorf("could not retrieve total note count from %q store: %w", prevShard, err)
+		}
+		p.statsCollector.TrackNoteCount(prevShard, totalCount)
+	}
+
+	return nil
 }
 
 // CountNotes counts notes with account details consideration
@@ -170,19 +311,34 @@ func (p *DataProxy) CountNotes(ctx context.Context, accountDetails AccountDetail
 	// This behavior is acceptable for our application but may not be for yours: If you need stricter guarantees, you will have to
 	// exclude duplicates, for example by applying set-based operations.
 
+	// Count notes on account shard
+	shardName, shardStore := p.getAccountShard(accountDetails)
+
 	start := time.Now()
-	// TODO: Count notes on account shard
-	newNotes, err := p.newNoteStore.CountNotes(ctx, accountDetails.AccountID)
+
+	accountShardCount, err := shardStore.CountNotes(ctx, accountDetails.AccountID)
 	if err != nil {
-		_ = p.statsCollector.TrackDataStoreAccess("CountNotes", time.Since(start), constants.NewNoteStore, telemetry.DataStoreAccessStatusError)
+		_ = p.statsCollector.TrackDataStoreAccess("CountNotes", time.Since(start), shardName, telemetry.DataStoreAccessStatusError)
 
-		return 0, fmt.Errorf("could not retrieve notes on new shard: %w", err)
+		return 0, fmt.Errorf("could not retrieve notes on %q shard: %w", shardName, err)
 	}
-	_ = p.statsCollector.TrackDataStoreAccess("CountNotes", time.Since(start), constants.NewNoteStore, telemetry.DataStoreAccessStatusSuccess)
+	_ = p.statsCollector.TrackDataStoreAccess("CountNotes", time.Since(start), shardName, telemetry.DataStoreAccessStatusSuccess)
 
-	return newNotes, nil
+	if !accountDetails.IsMigrating {
+		return accountShardCount, nil
+	}
 
-	// TODO: Count notes on other shard, if migrating. return the sum
+	// Count notes on previous shard, if migrating. return the sum
+	prevShard, prevStore := p.previousShard(shardName)
+	previousCount, err := prevStore.CountNotes(ctx, accountDetails.AccountID)
+	if err != nil {
+		_ = p.statsCollector.TrackDataStoreAccess("CountNotes", time.Since(start), prevShard, telemetry.DataStoreAccessStatusError)
+
+		return 0, fmt.Errorf("could not retrieve notes on %q shard: %w", prevShard, err)
+	}
+	_ = p.statsCollector.TrackDataStoreAccess("CountNotes", time.Since(start), prevShard, telemetry.DataStoreAccessStatusSuccess)
+
+	return accountShardCount + previousCount, nil
 }
 
 // GetTotalNotes implements NoteStore interface with locking
@@ -190,18 +346,24 @@ func (p *DataProxy) GetTotalNotes(ctx context.Context) (int, error) {
 	p.lockWithContentionTracking("GetTotalNotes")
 	defer p.mu.Unlock()
 
-	// TODO: Count notes on all shards and sum up
-	start := time.Now()
-	newCount, err := p.newNoteStore.GetTotalNotes(ctx)
-	if err != nil {
-		_ = p.statsCollector.TrackDataStoreAccess("GetTotalNotes", time.Since(start), constants.NewNoteStore, telemetry.DataStoreAccessStatusError)
-		return 0, fmt.Errorf("could not retrieve total count from new store: %w", err)
+	// Count notes on all shards and sum up
+	var totalCount int
+	for _, shardName := range constants.Shards {
+		store := p.getShardStore(shardName)
+
+		start := time.Now()
+		partialCount, err := store.GetTotalNotes(ctx)
+		if err != nil {
+			_ = p.statsCollector.TrackDataStoreAccess("GetTotalNotes", time.Since(start), shardName, telemetry.DataStoreAccessStatusError)
+			return 0, fmt.Errorf("could not retrieve total count from %q store: %w", shardName, err)
+		}
+		_ = p.statsCollector.TrackDataStoreAccess("GetTotalNotes", time.Since(start), shardName, telemetry.DataStoreAccessStatusSuccess)
+
+		p.statsCollector.TrackNoteCount(shardName, partialCount)
+
+		totalCount += partialCount
 	}
-	_ = p.statsCollector.TrackDataStoreAccess("GetTotalNotes", time.Since(start), constants.NewNoteStore, telemetry.DataStoreAccessStatusSuccess)
 
-	p.statsCollector.TrackNoteCount(constants.NewNoteStore, newCount)
-
-	totalCount := newCount
 	return totalCount, nil
 }
 
