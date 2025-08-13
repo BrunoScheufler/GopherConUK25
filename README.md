@@ -1,3 +1,5 @@
+![header](./media/header.jpg)
+
 # Building a framework for reliable data migrations in Go
 
 > [!IMPORTANT]  
