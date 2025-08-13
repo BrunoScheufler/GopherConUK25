@@ -10,7 +10,7 @@
 > [!NOTE]  
 > Most instructions are for macOS and should work on Linux. If you are using Windows, please adapt the commands accordingly or use WSL. Unfortunately, I cannot provide one-on-one support if you are using Windows.
 
-- [ ] [Install Go](https://go.dev/doc/install) v1.24.5 (the latest version)
+- [ ] [Install Go](https://go.dev/doc/install) v1.24.5 or later
 - [ ] Clone this repository
 
 ```bash
@@ -113,8 +113,13 @@ The following branches are available:
 
 #### Steps
 
-- [ ] Store new notes on the new data store
-- [ ] Migrate existing notes from the legacy data store to the new data store
+> [!NOTE]
+> All changes for this exercise should be made in [`proxy/impl.go`](./proxy/impl.go). You do not need to touch any other files!
+
+- [ ] Update `ListNotes()` to retrieve notes from the new data store in addition to the legacy store, if migrating
+- [ ] Update `GetNote()` to retrieve notes from the new data store, if migrating
+- [ ] Update `CreateNote()` to store new notes on the new data store, if migrating
+- [ ] Migrate existing notes from the legacy data store to the new data store during `Update()`
 
 ### Task 2: Implement a sharding strategy for accounts
 
