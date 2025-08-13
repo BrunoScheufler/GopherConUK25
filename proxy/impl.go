@@ -20,6 +20,13 @@ func (p *DataProxy) init() error {
 
 	p.legacyNoteStore = legacyStore
 
+	newStore, err := store.NewNoteStore(store.DefaultStoreOptions(constants.NewNoteStore, p.logger))
+	if err != nil {
+		return fmt.Errorf("failed to create note store: %w", err)
+	}
+
+	p.newNoteStore = newStore
+
 	return nil
 }
 

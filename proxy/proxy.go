@@ -17,6 +17,7 @@ type DataProxy struct {
 	port    int
 
 	legacyNoteStore store.NoteStore
+	newNoteStore    store.NoteStore
 
 	statsCollector telemetry.StatsCollector
 	mu             sync.Mutex
