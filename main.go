@@ -448,8 +448,12 @@ func createHTTPServer(appConfig *AppConfig, port string) *http.Server {
 	mux := http.NewServeMux()
 	server.SetupRoutes(mux)
 
+	// Apply middleware: CORS first, then logging
+	handler := server.CORSMiddleware(mux)
+	handler = server.LoggingMiddleware(handler)
+
 	return &http.Server{
 		Addr:    port,
-		Handler: server.LoggingMiddleware(mux),
+		Handler: handler,
 	}
 }

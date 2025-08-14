@@ -1,0 +1,16 @@
+{
+  "name": "Project Development Container",
+  "dockerFile": "Dockerfile",
+  "context": "..",
+  "extensions": [
+    "golang.go",
+    "ms-vscode.go"
+  ],
+  "settings": {
+    "go.useLanguageServer": true,
+    "go.toolsEnvVars": {
+      "GO111MODULE": "on"
+    }
+  },
+  "postCreateCommand": "make run"
+}

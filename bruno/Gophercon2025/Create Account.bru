@@ -1,0 +1,21 @@
+meta {
+  name: Create Account
+  type: http
+  seq: 5
+}
+
+post {
+  url: http://localhost:8080/accounts
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "name": "Test Account"
+  }
+}
+
+settings {
+  encodeUrl: true
+}

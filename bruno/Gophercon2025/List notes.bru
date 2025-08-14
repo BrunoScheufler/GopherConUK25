@@ -1,0 +1,19 @@
+meta {
+  name: List notes
+  type: http
+  seq: 7
+}
+
+get {
+  url: http://localhost:8080/accounts/:account_id/notes
+  body: none
+  auth: inherit
+}
+
+params:path {
+  account_id: 0dfb1503-db29-4a87-b2c3-735221aba420
+}
+
+settings {
+  encodeUrl: true
+}
