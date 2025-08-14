@@ -137,4 +137,4 @@ The following branches are available:
 
 ## Slides
 
-TBA
+The slides can be downloaded [here](./media/slides.pdf).
