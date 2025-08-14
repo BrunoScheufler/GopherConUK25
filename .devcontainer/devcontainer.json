@@ -12,5 +12,5 @@
       "GO111MODULE": "on"
     }
   },
-  "postCreateCommand": "make run"
+  "postCreateCommand": "make build"
 }
