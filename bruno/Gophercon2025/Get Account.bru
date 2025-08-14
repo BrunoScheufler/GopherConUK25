@@ -1,0 +1,19 @@
+meta {
+  name: Get Account
+  type: http
+  seq: 4
+}
+
+get {
+  url: http://localhost:8080/accounts/:account_id
+  body: none
+  auth: inherit
+}
+
+params:path {
+  account_id: 1
+}
+
+settings {
+  encodeUrl: true
+}

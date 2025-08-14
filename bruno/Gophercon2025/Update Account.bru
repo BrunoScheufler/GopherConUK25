@@ -1,0 +1,25 @@
+meta {
+  name: Update Account
+  type: http
+  seq: 6
+}
+
+put {
+  url: http://localhost:8080/accounts/:account_id
+  body: json
+  auth: inherit
+}
+
+params:path {
+  account_id: 0dfb1503-db29-4a87-b2c3-735221aba420
+}
+
+body:json {
+  {
+    "name": "updated Account Name"
+  }
+}
+
+settings {
+  encodeUrl: true
+}

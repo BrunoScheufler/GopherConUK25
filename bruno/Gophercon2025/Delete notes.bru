@@ -1,0 +1,26 @@
+meta {
+  name: Delete notes
+  type: http
+  seq: 12
+}
+
+delete {
+  url: http://localhost:8080/accounts/:account_id/notes/:note_id
+  body: json
+  auth: inherit
+}
+
+params:path {
+  note_id: 2aa38c36-3b44-410f-a245-74d9192c0fe4
+  account_id: 0dfb1503-db29-4a87-b2c3-735221aba420
+}
+
+body:json {
+  {
+    "content": "Example content"
+  }
+}
+
+settings {
+  encodeUrl: true
+}

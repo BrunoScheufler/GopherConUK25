@@ -1,0 +1,25 @@
+meta {
+  name: Create Notes
+  type: http
+  seq: 8
+}
+
+post {
+  url: http://localhost:8080/accounts/:account_id/notes
+  body: json
+  auth: inherit
+}
+
+params:path {
+  account_id: 0dfb1503-db29-4a87-b2c3-735221aba420
+}
+
+body:json {
+  {
+    "content": "Example content"
+  }
+}
+
+settings {
+  encodeUrl: true
+}
